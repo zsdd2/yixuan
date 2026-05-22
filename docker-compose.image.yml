@@ -1,0 +1,53 @@
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: yixuan_db
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  web:
+    image: ghcr.io/zsdd2/yixuan-web:${YIXUAN_VERSION:-latest}
+    container_name: yixuan_web
+    restart: always
+    env_file:
+      - .env
+    environment:
+      PYTHONPATH: /app
+      APP_RELOAD: "false"
+    volumes:
+      - ${NAS_HOST_PATH:-./nas_data}:/mnt/nas_data
+      - app_storage:/app/storage
+    depends_on:
+      db:
+        condition: service_healthy
+    command: sh /app/entrypoint.sh
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  frontend:
+    image: ghcr.io/zsdd2/yixuan-frontend:${YIXUAN_VERSION:-latest}
+    container_name: yixuan_frontend
+    restart: always
+    ports:
+      - "${FRONTEND_PORT:-15173}:80"
+    depends_on:
+      web:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  app_storage:
