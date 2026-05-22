@@ -1,0 +1,41 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #2563EB;
+  --color-primary-light: #EFF6FF;
+  --color-bg-page: #F9FAFB;
+  --color-card-bg: #FFFFFF;
+  --color-text-heading: #111827;
+  --color-text-primary: #1E293B;
+  --color-text-secondary: #6B7280;
+  --color-text-muted: #9CA3AF;
+  --color-border: #F0F0F0;
+  --color-accent-blue: #93C5FD;
+}
+
+body {
+  background-color: #F9FAFB;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+}
+
+/* el-progress: 极细莫兰迪蓝 4px - 使用 CSS 变量 */
+.el-progress-bar__outer {
+  height: var(--el-progress-height, 4px);
+  border-radius: var(--el-progress-radius, 2px);
+  background-color: var(--el-progress-bg, #F1F5F9);
+}
+
+.el-progress-bar__inner {
+  border-radius: var(--el-progress-radius, 2px);
+  background-color: var(--color-accent-blue, #93C5FD);
+}
+
+.el-progress--without-text {
+  margin-right: 0;
+  padding-right: 0;
+}
+
+.el-progress--without-text .el-progress-bar {
+  padding-right: 0;
+  margin-right: 0;
+}
