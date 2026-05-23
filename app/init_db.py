@@ -9,6 +9,7 @@ init_db.py —— 数据库种子数据初始化
 - 本文件提供独立的种子数据函数供其他模块导入使用
 """
 import asyncio
+import os
 import sys
 
 from sqlalchemy import select, text
@@ -16,24 +17,51 @@ from sqlalchemy.exc import IntegrityError
 
 from app.database import engine, AsyncSessionLocal
 from app import models  # 用于访问 models.User, models.UserRole 等
+from app.auth import get_password_hash
 
 
 async def seed_admin_user() -> None:
     print("[init] seeding admin user...")
+    admin_username = os.getenv("ADMIN_USERNAME", "admin")
+    admin_password = os.getenv("ADMIN_PASSWORD", "adminadmin")
+    admin_display_name = os.getenv("ADMIN_DISPLAY_NAME", "超级管理员")
+
     async with AsyncSessionLocal() as session:
-        # 幂等检查：已存在则跳过
+        # 幂等修复：旧版本可能创建了 Admin 且没有 password_hash，这里统一修正。
         result = await session.execute(
             select(models.User).where(models.User.id == 1)
         )
         existing = result.scalar_one_or_none()
         if existing:
-            print(f"   user id=1 ({existing.username}) exists, skip.")
+            changed = False
+            if existing.username != admin_username:
+                existing.username = admin_username
+                changed = True
+            if existing.display_name != admin_display_name:
+                existing.display_name = admin_display_name
+                changed = True
+            if not existing.password_hash:
+                existing.password_hash = get_password_hash(admin_password)
+                changed = True
+            if existing.role != models.UserRole.super_admin:
+                existing.role = models.UserRole.super_admin
+                changed = True
+            if not existing.is_active:
+                existing.is_active = True
+                changed = True
+            if changed:
+                await session.commit()
+                print(f"   admin user id=1 repaired as {admin_username}.")
+            else:
+                print(f"   admin user id=1 ({existing.username}) exists, skip.")
             return
 
         admin = models.User(
             id=1,
-            username="Admin",
-            role=models.UserRole.staff,
+            username=admin_username,
+            display_name=admin_display_name,
+            password_hash=get_password_hash(admin_password),
+            role=models.UserRole.super_admin,
             is_active=True,
         )
         session.add(admin)
