@@ -222,7 +222,13 @@ const visible = computed({
 
 const categories = ref<any[]>([])
 const selectedTarget = ref<any>(null)
-const reviewStage = ref<'raw' | 'retouched' | 'final'>('raw')
+type ReviewStage = 'raw' | 'retouched' | 'final'
+
+const isReviewStage = (value: unknown): value is ReviewStage => (
+  value === 'raw' || value === 'retouched' || value === 'final'
+)
+
+const reviewStage = ref<ReviewStage>('raw')
 const photoType = ref<'raw' | 'retouched' | 'final'>('raw')
 const currentPhotos = ref<any[]>([])
 const loadingPhotos = ref(false)
@@ -235,7 +241,7 @@ const expiredDays = ref(7)
 const viewMode = ref<'create' | 'management'>('create')
 const sessions = ref<any[]>([])
 const loadingSessions = ref(false)
-const managementStage = ref<'raw' | 'retouched' | 'final'>('raw')
+const managementStage = ref<ReviewStage>('raw')
 
 const stageOptions = [
   { type: 'raw' as const, label: '原图审核' },
@@ -249,15 +255,15 @@ const stageLabel = computed(() => ({
   final: '最终图审核',
 }[reviewStage.value]))
 
-const sessionsByStage = computed<Record<'raw' | 'retouched' | 'final', any[]>>(() => {
-  const grouped: Record<'raw' | 'retouched' | 'final', any[]> = {
+const sessionsByStage = computed<Record<ReviewStage, any[]>>(() => {
+  const grouped: Record<ReviewStage, any[]> = {
     raw: [],
     retouched: [],
     final: [],
   }
   sessions.value.forEach((session) => {
     const stage = session.review_stage || 'raw'
-    if (stage === 'retouched' || stage === 'final' || stage === 'raw') {
+    if (isReviewStage(stage)) {
       grouped[stage].push(session)
     } else {
       grouped.raw.push(session)
@@ -268,7 +274,7 @@ const sessionsByStage = computed<Record<'raw' | 'retouched' | 'final', any[]>>((
 
 const filteredSessions = computed(() => sessionsByStage.value[managementStage.value])
 
-const activeSessionByStage = computed<Record<'raw' | 'retouched' | 'final', any | null>>(() => {
+const activeSessionByStage = computed<Record<ReviewStage, any | null>>(() => {
   const now = Date.now()
   return {
     raw: sessionsByStage.value.raw.find((item) => !item.is_disabled && new Date(item.expired_at).getTime() > now) || null,
