@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse
 from app.database import Base, engine
 import app.models  # noqa: F401  确保所有 ORM 模型注册到 Base.metadata
 from app.init_db import seed_admin_user, seed_builtin_templates
-from app.routers import photos, projects, system, guest, tags, clients, settings, reviews, deliveries, auth, users
+from app.routers import photos, projects, system, guest, tags, clients, settings, reviews, deliveries, auth, users, billing
 from app.services.delivery_scheduler import start_scheduler, stop_scheduler
 
 
@@ -72,6 +72,7 @@ app.include_router(clients.router)
 app.include_router(settings.router)
 app.include_router(reviews.router)
 app.include_router(deliveries.router)
+app.include_router(billing.router)
 
 
 @app.get("/", tags=["health"])

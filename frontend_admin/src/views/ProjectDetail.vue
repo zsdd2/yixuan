@@ -9,6 +9,12 @@
       @open-shuttle="shuttleTargetId = activeTargetId"
     />
 
+    <ProjectBilling
+      v-else-if="showBilling"
+      :project-id="Number(projectId)"
+      @back="showBilling = false; fetchTargets()"
+    />
+
     <!-- 最终交付图视图 -->
     <ProjectDelivery
       v-else-if="showDelivery"
@@ -58,6 +64,9 @@
               </el-button>
               <el-button class="action-btn action-btn-primary" @click="showShareReview = true">
                 📤 分享审核
+              </el-button>
+              <el-button class="action-btn" @click="showBilling = true">
+                账目明细
               </el-button>
               <el-button class="action-btn" :icon="Plus" @click="showCreateTarget = true">
                 新增目标
@@ -450,6 +459,7 @@ import ImagePicker from '../components/ImagePicker.vue'
 import ShuttleModalWrapper from '../components/ShuttleModalWrapper.vue'
 import PhotoShuttle from '../components/PhotoShuttle.vue'
 import ProjectDelivery from '../components/ProjectDelivery.vue'
+import ProjectBilling from '../components/ProjectBilling.vue'
 import LineageBoard from '../components/LineageBoard.vue'
 import ShareReviewModal from '../components/ShareReviewModal.vue'
 import type { TargetItem } from '../components/TargetCard.vue'
@@ -471,6 +481,7 @@ const activeTargetId = ref<number | null>(null)
 const lineageTargetId = ref<number | null>(null)
 const shuttleTargetId = ref<number | null>(null)
 const showDelivery = ref(false)
+const showBilling = ref(false)
 const archivedAt = ref<string | null>(null)
 const projectName = ref('')
 const projectDisplayId = ref('')

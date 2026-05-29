@@ -10,6 +10,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     JSON,
+    Numeric,
     Sequence,
     String,
     Table,
@@ -122,6 +123,9 @@ class Client(Base):
     projects: Mapped[list["Project"]] = relationship(
         "Project", foreign_keys="Project.client_id", back_populates="client"
     )
+    billing_price_rules: Mapped[list["BillingPriceRule"]] = relationship(
+        "BillingPriceRule", back_populates="client", cascade="all, delete-orphan"
+    )
 
 
 class Project(Base):
@@ -201,6 +205,8 @@ class Project(Base):
     targets: Mapped[list["ProjectTarget"]] = relationship("ProjectTarget", back_populates="project", cascade="all, delete-orphan")
     photos: Mapped[list["Photo"]] = relationship("Photo", back_populates="project", cascade="all, delete-orphan")
     tags_list: Mapped[list["ProjectTag"]] = relationship("ProjectTag", back_populates="project", cascade="all, delete-orphan")
+    billing_items: Mapped[list["ProjectBillingItem"]] = relationship("ProjectBillingItem", back_populates="project", cascade="all, delete-orphan")
+    billing_summary: Mapped["ProjectBillingSummary | None"] = relationship("ProjectBillingSummary", back_populates="project", uselist=False, cascade="all, delete-orphan")
 
 
 class ProjectGroup(Base):
@@ -382,6 +388,82 @@ class Photo(Base):
     tags: Mapped[list["ProjectTag"]] = relationship("ProjectTag", secondary=photo_tags, back_populates="photos")
     parent: Mapped["Photo | None"] = relationship("Photo", remote_side="Photo.id", foreign_keys=[parent_id])
     children: Mapped[list["Photo"]] = relationship("Photo", foreign_keys=[parent_id])
+    billing_items: Mapped[list["ProjectBillingItem"]] = relationship("ProjectBillingItem", back_populates="photo")
+
+
+class BillingPriceRule(Base):
+    __tablename__ = "billing_price_rules"
+    __table_args__ = (
+        UniqueConstraint("client_id", "base_category_type", "production_type", name="uq_billing_price_client_production"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    client_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("clients.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    base_category_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    production_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    production_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    unit_price: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False, default=0, server_default="0")
+    is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    client: Mapped["Client"] = relationship("Client", back_populates="billing_price_rules")
+
+
+class ProjectBillingSummary(Base):
+    __tablename__ = "project_billing_summaries"
+
+    project_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("projects.id", ondelete="CASCADE"), primary_key=True
+    )
+    subtotal_amount: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False, default=0, server_default="0")
+    adjustment_amount: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False, default=0, server_default="0")
+    total_amount: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False, default=0, server_default="0")
+    billing_status: Mapped[str] = mapped_column(String(20), nullable=False, default="draft", server_default="draft")
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    paid_by: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    project: Mapped["Project"] = relationship("Project", back_populates="billing_summary")
+
+
+class ProjectBillingItem(Base):
+    __tablename__ = "project_billing_items"
+    __table_args__ = (
+        UniqueConstraint("project_id", "photo_id", name="uq_project_billing_item_photo"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    project_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    photo_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("photos.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    target_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("project_targets.id", ondelete="SET NULL"), nullable=True
+    )
+    base_category_type: Mapped[str] = mapped_column(String(32), nullable=False, default="other")
+    production_type: Mapped[str] = mapped_column(String(32), nullable=False, default="manual")
+    production_name: Mapped[str] = mapped_column(String(64), nullable=False, default="手动费用")
+    quantity: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=1, server_default="1")
+    unit_price: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False, default=0, server_default="0")
+    amount: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False, default=0, server_default="0")
+    source: Mapped[str] = mapped_column(String(20), nullable=False, default="manual", server_default="manual")
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_excluded: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    project: Mapped["Project"] = relationship("Project", back_populates="billing_items")
+    photo: Mapped["Photo | None"] = relationship("Photo", back_populates="billing_items")
+    target: Mapped["ProjectTarget | None"] = relationship("ProjectTarget")
 
 
 # ── 全局标签 ──────────────────────────────────────────────

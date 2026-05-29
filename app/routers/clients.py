@@ -1,15 +1,12 @@
-"""
-routers/clients.py —— 客户管理
-"""
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select, func as sa_func
+from sqlalchemy import func as sa_func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.deps import AdminUser, CurrentUser
-from app.models import Client, Project
+from app.models import BillingPriceRule, Client, Project, ProjectBillingSummary
 from app.schemas.client_schema import (
     ClientCreate,
     ClientInList,
@@ -39,6 +36,7 @@ async def list_clients(
     project_totals: dict[int, int] = {}
     active_counts: dict[int, int] = {}
     completed_counts: dict[int, int] = {}
+    total_amounts: dict[int, float] = {}
 
     if client_ids:
         pt_stmt = (
@@ -70,6 +68,14 @@ async def list_clients(
         )
         completed_counts = dict((await db.execute(cc_stmt)).all())
 
+        amount_stmt = (
+            select(Project.client_id, sa_func.coalesce(sa_func.sum(ProjectBillingSummary.total_amount), 0))
+            .join(ProjectBillingSummary, ProjectBillingSummary.project_id == Project.id)
+            .where(Project.client_id.in_(client_ids), Project.deleted_at.is_(None))
+            .group_by(Project.client_id)
+        )
+        total_amounts = dict((await db.execute(amount_stmt)).all())
+
     items = [
         ClientInList(
             id=c.id,
@@ -81,7 +87,7 @@ async def list_clients(
             project_total=project_totals.get(c.id, 0),
             active_projects=active_counts.get(c.id, 0),
             completed_projects=completed_counts.get(c.id, 0),
-            total_amount=0.0,
+            total_amount=float(total_amounts.get(c.id, 0) or 0),
             created_at=c.created_at.isoformat(),
         )
         for c in clients
@@ -119,6 +125,26 @@ async def create_client(
     )
     db.add(client)
     await db.flush()
+    db.add_all([
+        BillingPriceRule(
+            client_id=client.id,
+            base_category_type="white",
+            production_type="normal",
+            production_name="默认制作",
+            unit_price=0,
+            is_default=True,
+            is_active=True,
+        ),
+        BillingPriceRule(
+            client_id=client.id,
+            base_category_type="scene",
+            production_type="normal",
+            production_name="默认制作",
+            unit_price=0,
+            is_default=True,
+            is_active=True,
+        ),
+    ])
     await db.refresh(client)
     await db.commit()
 
