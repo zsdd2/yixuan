@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.deps import CurrentUser
-from app.models import CategoryType, Client, Photo, PhotoStatus, ProcessState, Project, ProjectGroup, ProjectStatus, ProjectTag, ProjectTarget, ProjectTemplate, SystemTargetDictionary, TargetStatus, TemplateTarget, User, photo_tags
+from app.models import CategoryType, Client, Photo, PhotoStatus, ProcessState, Project, ProjectGroup, ProjectStatus, ProjectTag, ProjectTarget, ProjectTemplate, SystemTargetDictionary, TargetReferenceAsset, TargetStatus, TemplateTarget, User, UserRole, photo_tags, user_project_access
 from app.schemas.project_schema import (
     ArchiveResponse,
     ProjectCreate,
@@ -88,17 +88,17 @@ async def list_projects(
 ) -> ProjectListResponse:
     from sqlalchemy import or_, cast, String
     from datetime import datetime as dt
-    from app.models import UserRole
-
     base_where = []
 
     # ── RBAC 权限过滤 ──────────────────────────────────────
-    if current_user.role == UserRole.client:
-        # 客户只能看到 customer_id = 自己 ID 的项目
-        base_where.append(Project.customer_id == current_user.id)
-    elif current_user.role == UserRole.staff:
-        # 员工只能看到自己创建的项目（后续可扩展为 user_project_access 表授权）
-        base_where.append(Project.created_by == current_user.id)
+    if current_user.role not in (UserRole.super_admin, UserRole.admin):
+        allowed_project_ids = (await db.execute(
+            select(user_project_access.c.project_id).where(user_project_access.c.user_id == current_user.id)
+        )).scalars().all()
+        if allowed_project_ids:
+            base_where.append(Project.id.in_(allowed_project_ids))
+        else:
+            base_where.append(Project.id == -1)
     # super_admin 和 admin 可以看到所有项目，无需额外过滤
 
     if status_filter:
@@ -998,6 +998,114 @@ async def complete_target(
     )
 
 
+@router.get("/{project_id}/targets/{target_id}/references", summary="获取目标参考图")
+async def list_target_references(
+    project_id: int,
+    target_id: int,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    target = await db.get(ProjectTarget, target_id)
+    if target is None or target.project_id != project_id or target.deleted_at is not None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="目标不存在")
+
+    rows = (await db.execute(
+        select(TargetReferenceAsset)
+        .where(TargetReferenceAsset.target_id == target_id)
+        .options(selectinload(TargetReferenceAsset.photo))
+        .order_by(TargetReferenceAsset.asset_type, TargetReferenceAsset.version.desc(), TargetReferenceAsset.id.desc())
+    )).scalars().all()
+
+    return {
+        "items": [
+            {
+                "id": item.id,
+                "asset_type": item.asset_type,
+                "photo_id": item.photo_id,
+                "version": item.version,
+                "is_current": item.is_current,
+                "notes": item.notes,
+                "created_at": item.created_at.isoformat() if item.created_at else None,
+                "photo": {
+                    "id": item.photo.id,
+                    "display_id": item.photo.display_id,
+                    "original_filename": item.photo.original_filename,
+                    "thumbnail_path": item.photo.thumbnail_path,
+                    "original_path": item.photo.original_path,
+                } if item.photo else None,
+            }
+            for item in rows
+        ]
+    }
+
+
+@router.post("/{project_id}/targets/{target_id}/references", summary="设置目标参考图")
+async def set_target_reference(
+    project_id: int,
+    target_id: int,
+    body: dict,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    asset_type = body.get("asset_type")
+    photo_id = body.get("photo_id")
+    notes = body.get("notes")
+    if asset_type not in {"scene_goal", "empty_scene"}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="asset_type 必须是 scene_goal 或 empty_scene")
+    if not photo_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="photo_id 不能为空")
+
+    target = await db.get(ProjectTarget, target_id)
+    if target is None or target.project_id != project_id or target.deleted_at is not None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="目标不存在")
+    photo = await db.get(Photo, int(photo_id))
+    if photo is None or photo.project_id != project_id or photo.deleted_at is not None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="图片不属于该项目")
+
+    if asset_type == "empty_scene":
+        current_rows = (await db.execute(
+            select(TargetReferenceAsset).where(
+                TargetReferenceAsset.target_id == target_id,
+                TargetReferenceAsset.asset_type == asset_type,
+                TargetReferenceAsset.is_current == True,
+            )
+        )).scalars().all()
+        for item in current_rows:
+            item.is_current = False
+        max_version = (await db.execute(
+            select(sa_func.coalesce(sa_func.max(TargetReferenceAsset.version), 0)).where(
+                TargetReferenceAsset.target_id == target_id,
+                TargetReferenceAsset.asset_type == asset_type,
+            )
+        )).scalar() or 0
+        version = max_version + 1
+    else:
+        existing = await db.scalar(
+            select(TargetReferenceAsset).where(
+                TargetReferenceAsset.target_id == target_id,
+                TargetReferenceAsset.asset_type == asset_type,
+                TargetReferenceAsset.photo_id == int(photo_id),
+                TargetReferenceAsset.is_current == True,
+            )
+        )
+        if existing is not None:
+            return {"code": 200, "msg": "参考图已存在", "data": {"id": existing.id}}
+        version = 1
+
+    ref = TargetReferenceAsset(
+        target_id=target_id,
+        asset_type=asset_type,
+        photo_id=int(photo_id),
+        version=version,
+        is_current=True,
+        notes=notes,
+    )
+    db.add(ref)
+    await db.commit()
+    await db.refresh(ref)
+    return {"code": 200, "msg": "参考图已更新", "data": {"id": ref.id}}
+
+
 # ── 项目照片列表 ─────────────────────────────────────────
 
 @router.get(
@@ -1505,16 +1613,17 @@ async def soft_delete_project(
             detail=f"项目 id={project_id} 不存在",
         )
 
-    # ── RBAC 权限验证 ──────────────────────────────────────
-    from app.models import UserRole
-    if current_user.role == UserRole.client:
-        # 客户只能删除关联到自己的项目
-        if project.customer_id != current_user.id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="无权访问此项目",
+    if current_user.role not in (UserRole.super_admin, UserRole.admin):
+        if not getattr(current_user, "can_delete_projects", False):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无删除项目权限")
+        allowed = await db.scalar(
+            select(user_project_access.c.project_id).where(
+                user_project_access.c.user_id == current_user.id,
+                user_project_access.c.project_id == project_id,
             )
-    # staff、admin、super_admin 可以删除所有项目
+        )
+        if allowed is None:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问此项目")
 
     project.deleted_at = datetime.now(timezone.utc)
     await db.commit()

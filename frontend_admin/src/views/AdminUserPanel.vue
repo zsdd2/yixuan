@@ -9,9 +9,17 @@ interface User {
   username: string
   display_name: string
   role: UserRole
+  can_delete_projects: boolean
+  project_ids: number[]
   is_active: boolean
   last_login_at: string | null
   created_at: string
+}
+
+interface ProjectOption {
+  id: number
+  name: string
+  display_id: string
 }
 
 interface UserListResponse {
@@ -26,6 +34,7 @@ const total = ref(0)
 const loading = ref(false)
 const searchKeyword = ref('')
 const roleFilter = ref('')
+const projectOptions = ref<ProjectOption[]>([])
 
 const dialogVisible = ref(false)
 const dialogMode = ref<'create' | 'edit'>('create')
@@ -37,6 +46,8 @@ const userForm = ref({
   display_name: '',
   password: '',
   role: 'staff' as UserRole,
+  can_delete_projects: false,
+  project_ids: [] as number[],
   is_active: true,
 })
 
@@ -85,6 +96,15 @@ const fetchUsers = async () => {
   }
 }
 
+const fetchProjects = async () => {
+  try {
+    const data = await request.get('/api/v1/projects', { skip: 0, limit: 100 })
+    projectOptions.value = data.items || []
+  } catch (error: any) {
+    ElMessage.error(error.message || '加载项目列表失败')
+  }
+}
+
 const handleCreate = () => {
   dialogMode.value = 'create'
   dialogTitle.value = '创建用户'
@@ -94,6 +114,8 @@ const handleCreate = () => {
     display_name: '',
     password: '',
     role: 'staff',
+    can_delete_projects: false,
+    project_ids: [],
     is_active: true,
   }
   dialogVisible.value = true
@@ -108,6 +130,8 @@ const handleEdit = (user: User) => {
     display_name: user.display_name,
     password: '',
     role: user.role,
+    can_delete_projects: user.can_delete_projects,
+    project_ids: [...(user.project_ids || [])],
     is_active: user.is_active,
   }
   dialogVisible.value = true
@@ -140,7 +164,7 @@ const handleSubmit = async () => {
     return
   }
 
-  if (dialogMode.value === 'create' && userForm.value.password.length < 6) {
+  if ((dialogMode.value === 'create' || userForm.value.password) && userForm.value.password.length < 6) {
     ElMessage.error('密码至少 6 位')
     return
   }
@@ -152,15 +176,21 @@ const handleSubmit = async () => {
         display_name: userForm.value.display_name,
         password: userForm.value.password,
         role: userForm.value.role,
+        can_delete_projects: userForm.value.can_delete_projects,
+        project_ids: userForm.value.project_ids,
         is_active: userForm.value.is_active,
       })
       ElMessage.success('用户创建成功')
     } else {
-      await request.patch(`/api/v1/users/${userForm.value.id}`, {
+      const body: any = {
         display_name: userForm.value.display_name,
         role: userForm.value.role,
+        can_delete_projects: userForm.value.can_delete_projects,
+        project_ids: userForm.value.project_ids,
         is_active: userForm.value.is_active,
-      })
+      }
+      if (userForm.value.password) body.password = userForm.value.password
+      await request.patch(`/api/v1/users/${userForm.value.id}`, body)
       ElMessage.success('用户更新成功')
     }
 
@@ -178,6 +208,7 @@ const formatDate = (dateStr: string | null) => {
 
 onMounted(() => {
   fetchUsers()
+  fetchProjects()
 })
 </script>
 
@@ -271,7 +302,7 @@ onMounted(() => {
           />
         </div>
 
-        <div v-if="dialogMode === 'create'" class="form-item">
+        <div class="form-item">
           <label class="form-label">密码</label>
           <input
             v-model="userForm.password"
@@ -288,6 +319,33 @@ onMounted(() => {
               {{ opt.label }}
             </option>
           </select>
+        </div>
+
+        <div class="form-item">
+          <label class="form-label">
+            <input v-model="userForm.can_delete_projects" type="checkbox" class="form-checkbox" />
+            允许删除项目
+          </label>
+        </div>
+
+        <div class="form-item">
+          <label class="form-label">可查看项目</label>
+          <el-select
+            v-model="userForm.project_ids"
+            multiple
+            filterable
+            collapse-tags
+            collapse-tags-tooltip
+            placeholder="不选择则不可查看项目"
+            style="width: 100%;"
+          >
+            <el-option
+              v-for="project in projectOptions"
+              :key="project.id"
+              :label="`${project.display_id || project.id} - ${project.name}`"
+              :value="project.id"
+            />
+          </el-select>
         </div>
 
         <div class="form-item">

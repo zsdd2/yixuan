@@ -552,16 +552,30 @@ async def delete_template_target(
 
 # ═══════════════════ 用户管理 ═══════════════════════════════
 
+async def _project_ids_for_user(db: AsyncSession, user_id: int) -> list[int]:
+    rows = (await db.execute(
+        select(user_project_access.c.project_id).where(user_project_access.c.user_id == user_id)
+    )).scalars().all()
+    return list(rows)
+
+
 @router.get("/users", response_model=UserListResponse, summary="用户列表")
 async def list_users(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> UserListResponse:
     users = (await db.execute(select(User).order_by(User.id))).scalars().all()
+    access_rows = (await db.execute(select(user_project_access))).all()
+    access_map: dict[int, list[int]] = {}
+    for row in access_rows:
+        access_map.setdefault(row._mapping["user_id"], []).append(row._mapping["project_id"])
     items = [
         UserResponse(
             id=u.id, username=u.username, display_name=u.display_name,
-            role=u.role.value, is_active=u.is_active,
+            role=u.role.value,
+            can_delete_projects=getattr(u, "can_delete_projects", False),
+            project_ids=access_map.get(u.id, []),
+            is_active=u.is_active,
             created_at=u.created_at.isoformat(),
         ) for u in users
     ]
@@ -582,14 +596,20 @@ async def create_user(
         display_name=body.display_name,
         password_hash=get_password_hash(body.password),
         role=UserRole(body.role),
+        can_delete_projects=body.can_delete_projects,
     )
     db.add(user)
     await db.flush()
+    for pid in body.project_ids:
+        await db.execute(user_project_access.insert().values(user_id=user.id, project_id=pid))
     await db.refresh(user)
     await db.commit()
     return UserResponse(
         id=user.id, username=user.username, display_name=user.display_name,
-        role=user.role.value, is_active=user.is_active,
+        role=user.role.value,
+        can_delete_projects=getattr(user, "can_delete_projects", False),
+        project_ids=body.project_ids,
+        is_active=user.is_active,
         created_at=user.created_at.isoformat(),
     )
 
@@ -612,11 +632,20 @@ async def update_user(
         user.role = UserRole(body.role)
     if body.is_active is not None:
         user.is_active = body.is_active
+    if body.can_delete_projects is not None:
+        user.can_delete_projects = body.can_delete_projects
+    if body.project_ids is not None:
+        await db.execute(sa_delete(user_project_access).where(user_project_access.c.user_id == user_id))
+        for pid in body.project_ids:
+            await db.execute(user_project_access.insert().values(user_id=user_id, project_id=pid))
     await db.commit()
     await db.refresh(user)
     return UserResponse(
         id=user.id, username=user.username, display_name=user.display_name,
-        role=user.role.value, is_active=user.is_active,
+        role=user.role.value,
+        can_delete_projects=getattr(user, "can_delete_projects", False),
+        project_ids=await _project_ids_for_user(db, user.id),
+        is_active=user.is_active,
         created_at=user.created_at.isoformat(),
     )
 

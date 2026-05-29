@@ -1134,6 +1134,97 @@ async def upload_retouched(
         client_notes=photo.client_notes,
         revision_notes=photo.revision_notes,
     )
+
+
+@router.post(
+    "/{photo_id}/promote-final",
+    response_model=PhotoResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="将精修图直接生成完成图",
+)
+async def promote_photo_to_final(
+    photo_id: int,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> PhotoResponse:
+    source = await db.get(Photo, photo_id)
+    if source is None or source.deleted_at is not None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"照片 id={photo_id} 不存在")
+    if source.process_state != ProcessState.retouched:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="只能将精修图生成完成图")
+    if source.target_id is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="精修图尚未分配目标，无法生成完成图")
+
+    existing = await db.scalar(
+        select(Photo).where(
+            Photo.parent_id == source.id,
+            Photo.process_state == ProcessState.final,
+            Photo.deleted_at.is_(None),
+        )
+    )
+    if existing is not None:
+        return PhotoResponse(
+            id=existing.id,
+            project_id=existing.project_id,
+            target_id=existing.target_id,
+            parent_id=existing.parent_id,
+            display_id=existing.display_id,
+            version=existing.version,
+            is_confirmed=existing.is_confirmed,
+            original_path=existing.original_path,
+            original_filename=existing.original_filename,
+            thumbnail_path=existing.thumbnail_path,
+            status=existing.status.value,
+            process_state=existing.process_state.value,
+            client_notes=existing.client_notes,
+            revision_notes=existing.revision_notes,
+            retouch_quality=existing.retouch_quality,
+            retouch_batch_id=existing.retouch_batch_id,
+        )
+
+    display_id = await _next_display_id(db, source.project_id)
+    final_photo = Photo(
+        project_id=source.project_id,
+        group_id=source.group_id,
+        target_id=source.target_id,
+        parent_id=source.id,
+        display_id=display_id,
+        version=1,
+        original_path=source.original_path,
+        original_filename=source.original_filename,
+        file_hash=source.file_hash,
+        thumbnail_path=source.thumbnail_path,
+        status=PhotoStatus.selected,
+        process_state=ProcessState.final,
+        revision_notes=source.revision_notes,
+        retouch_quality=source.retouch_quality,
+        retouch_batch_id=source.retouch_batch_id,
+        shot_at=source.shot_at,
+    )
+    db.add(final_photo)
+    await db.commit()
+    await db.refresh(final_photo)
+    await mark_zip_dirty(final_photo.project_id, db)
+
+    return PhotoResponse(
+        id=final_photo.id,
+        project_id=final_photo.project_id,
+        group_id=final_photo.group_id,
+        target_id=final_photo.target_id,
+        parent_id=final_photo.parent_id,
+        display_id=final_photo.display_id,
+        version=final_photo.version,
+        is_confirmed=final_photo.is_confirmed,
+        original_path=final_photo.original_path,
+        original_filename=final_photo.original_filename,
+        thumbnail_path=final_photo.thumbnail_path,
+        status=final_photo.status.value,
+        process_state=final_photo.process_state.value,
+        client_notes=final_photo.client_notes,
+        revision_notes=final_photo.revision_notes,
+        retouch_quality=final_photo.retouch_quality,
+        retouch_batch_id=final_photo.retouch_batch_id,
+    )
 # ── 更新备注（修改说明 / 客户备注）──────────────────────────
 
 @router.patch(

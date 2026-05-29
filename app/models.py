@@ -84,6 +84,7 @@ class User(Base):
     role: Mapped[UserRole] = mapped_column(
         Enum(UserRole, name="user_role"), nullable=False, default=UserRole.staff
     )
+    can_delete_projects: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
     last_login_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, default=None

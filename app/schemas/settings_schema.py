@@ -141,6 +141,8 @@ class UserCreate(BaseModel):
     display_name: str | None = Field(None, max_length=64)
     password: str | None = Field(None, description="暂不启用认证")
     role: str = Field("staff")
+    can_delete_projects: bool = False
+    project_ids: list[int] = Field(default_factory=list)
 
 
 class UserUpdate(BaseModel):
@@ -148,6 +150,8 @@ class UserUpdate(BaseModel):
     password: str | None = None
     role: str | None = None
     is_active: bool | None = None
+    can_delete_projects: bool | None = None
+    project_ids: list[int] | None = None
 
 
 class UserResponse(BaseModel):
@@ -155,6 +159,8 @@ class UserResponse(BaseModel):
     username: str
     display_name: str | None = None
     role: str
+    can_delete_projects: bool = False
+    project_ids: list[int] = Field(default_factory=list)
     is_active: bool = True
     created_at: str
     model_config = {"from_attributes": True}

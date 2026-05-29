@@ -4,14 +4,14 @@
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func as sa_func, select
+from sqlalchemy import delete as sa_delete, func as sa_func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_password_hash
 from app.database import get_db
 from app.deps import AdminUser
-from app.models import User
+from app.models import User, user_project_access
 from app.schemas.user_schema import (
     UserCreateRequest,
     UserDetailResponse,
@@ -21,6 +21,13 @@ from app.schemas.user_schema import (
 )
 
 router = APIRouter(prefix="/api/v1/users", tags=["用户管理"])
+
+
+async def _project_ids_for_user(db: AsyncSession, user_id: int) -> list[int]:
+    rows = (await db.execute(
+        select(user_project_access.c.project_id).where(user_project_access.c.user_id == user_id)
+    )).scalars().all()
+    return list(rows)
 
 
 @router.get("", response_model=UserListResponse, summary="获取用户列表")
@@ -66,6 +73,10 @@ async def list_users(
             users_stmt = users_stmt.where(w)
     users_stmt = users_stmt.offset(skip).limit(limit)
     users = (await db.execute(users_stmt)).scalars().all()
+    access_rows = (await db.execute(select(user_project_access))).all()
+    access_map: dict[int, list[int]] = {}
+    for row in access_rows:
+        access_map.setdefault(row._mapping["user_id"], []).append(row._mapping["project_id"])
 
     items = [
         UserInList(
@@ -73,6 +84,8 @@ async def list_users(
             username=u.username,
             display_name=u.display_name,
             role=u.role,
+            can_delete_projects=getattr(u, "can_delete_projects", False),
+            project_ids=access_map.get(u.id, []),
             is_active=u.is_active,
             last_login_at=u.last_login_at.isoformat() if u.last_login_at else None,
             created_at=u.created_at.isoformat(),
@@ -108,10 +121,14 @@ async def create_user(
         display_name=request.display_name,
         password_hash=get_password_hash(request.password),
         role=request.role,
+        can_delete_projects=request.can_delete_projects,
         is_active=request.is_active,
     )
 
     db.add(new_user)
+    await db.flush()
+    for pid in request.project_ids:
+        await db.execute(user_project_access.insert().values(user_id=new_user.id, project_id=pid))
     try:
         await db.commit()
         await db.refresh(new_user)
@@ -127,6 +144,8 @@ async def create_user(
         username=new_user.username,
         display_name=new_user.display_name,
         role=new_user.role,
+        can_delete_projects=getattr(new_user, "can_delete_projects", False),
+        project_ids=request.project_ids,
         is_active=new_user.is_active,
         last_login_at=new_user.last_login_at.isoformat() if new_user.last_login_at else None,
         created_at=new_user.created_at.isoformat(),
@@ -156,6 +175,8 @@ async def get_user(
         username=user.username,
         display_name=user.display_name,
         role=user.role,
+        can_delete_projects=getattr(user, "can_delete_projects", False),
+        project_ids=await _project_ids_for_user(db, user.id),
         is_active=user.is_active,
         last_login_at=user.last_login_at.isoformat() if user.last_login_at else None,
         created_at=user.created_at.isoformat(),
@@ -184,8 +205,16 @@ async def update_user(
     # 更新字段
     if request.display_name is not None:
         user.display_name = request.display_name
+    if request.password is not None:
+        user.password_hash = get_password_hash(request.password)
     if request.role is not None:
         user.role = request.role
+    if request.can_delete_projects is not None:
+        user.can_delete_projects = request.can_delete_projects
+    if request.project_ids is not None:
+        await db.execute(sa_delete(user_project_access).where(user_project_access.c.user_id == user_id))
+        for pid in request.project_ids:
+            await db.execute(user_project_access.insert().values(user_id=user_id, project_id=pid))
     if request.is_active is not None:
         user.is_active = request.is_active
 
@@ -221,6 +250,7 @@ async def delete_user(
         )
 
     try:
+        await db.execute(sa_delete(user_project_access).where(user_project_access.c.user_id == user_id))
         await db.delete(user)
         await db.commit()
     except IntegrityError:
