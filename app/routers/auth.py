@@ -35,7 +35,8 @@ async def login(
     - 返回 JWT Token 和用户基本信息
     """
     # 查询用户
-    result = await db.execute(select(User).where(User.username == request.username))
+    username = request.username.strip()
+    result = await db.execute(select(User).where(User.username == username))
     user = result.scalar_one_or_none()
 
     # 验证用户存在且密码正确

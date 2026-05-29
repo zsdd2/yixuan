@@ -26,23 +26,44 @@ async def compute_project_status(db: AsyncSession, project_id: int) -> None:
     - completed 状态仅可手动设置
     """
     project = await db.get(Project, project_id)
-    if project is None or project.project_status == ProjectStatus.completed:
+    if project is None or getattr(project, "is_manual", False):
         return
 
-    counts = dict(
-        (await db.execute(
-            select(Photo.process_state, sa_func.count(Photo.id))
-            .where(Photo.project_id == project_id, Photo.status != PhotoStatus.deleted)
-            .group_by(Photo.process_state)
-        )).all()
-    )
-    total = sum(counts.values())
-    retouched = counts.get(ProcessState.retouched, 0)
-    final = counts.get(ProcessState.final, 0)
+    total = (await db.execute(
+        select(sa_func.count(Photo.id)).where(
+            Photo.project_id == project_id,
+            Photo.status != PhotoStatus.deleted,
+            Photo.deleted_at.is_(None),
+        )
+    )).scalar() or 0
+    assigned_retouching_count = (await db.execute(
+        select(sa_func.count(Photo.id)).where(
+            Photo.project_id == project_id,
+            Photo.target_id.isnot(None),
+            Photo.status != PhotoStatus.deleted,
+            Photo.deleted_at.is_(None),
+            Photo.process_state.in_([ProcessState.retouched, ProcessState.final]),
+        )
+    )).scalar() or 0
+    target_count = (await db.execute(
+        select(sa_func.count(ProjectTarget.id)).where(
+            ProjectTarget.project_id == project_id,
+            ProjectTarget.deleted_at.is_(None),
+        )
+    )).scalar() or 0
+    completed_target_count = (await db.execute(
+        select(sa_func.count(ProjectTarget.id)).where(
+            ProjectTarget.project_id == project_id,
+            ProjectTarget.target_status == TargetStatus.completed,
+            ProjectTarget.deleted_at.is_(None),
+        )
+    )).scalar() or 0
 
     if total == 0:
         new_status = ProjectStatus.not_started
-    elif retouched > 0 or final > 0:
+    elif target_count > 0 and completed_target_count >= target_count:
+        new_status = ProjectStatus.completed
+    elif assigned_retouching_count > 0:
         new_status = ProjectStatus.retouching
     else:
         new_status = ProjectStatus.shooting
@@ -96,7 +117,7 @@ def should_skip_auto_compute_project(project: Project) -> bool:
     跳过条件：
     - 项目状态为 completed（手动设置）
     """
-    return project.project_status == ProjectStatus.completed
+    return getattr(project, "is_manual", False)
 
 
 def should_skip_auto_compute_target(target: ProjectTarget) -> bool:

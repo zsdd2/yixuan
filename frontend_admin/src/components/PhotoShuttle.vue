@@ -437,10 +437,8 @@ async function removeFromTarget() {
   const snapshots = snapshotPhotos(ids)
   try {
     await request.patch('/api/v1/photos/bulk-update', { photo_ids: ids, remove_from_target: true })
-    for (const p of allPhotos.value) {
-      if (rightSelected.has(p.id)) p.target_id = null
-    }
     rightSelected.clear()
+    await fetchPhotos()
     lastUndo.value = { text: `刚移出 ${ids.length} 张照片`, snapshots, busy: false }
     ElMessage.success(`已移出 ${ids.length} 张照片`)
   } catch (e: any) {
@@ -456,10 +454,8 @@ async function softDeleteSelected() {
   } catch { return }
   try {
     await request.post('/api/v1/photos/bulk-soft-delete', { photo_ids: ids })
-    for (const p of allPhotos.value) {
-      if (leftSelected.has(p.id)) p.status = 'deleted'
-    }
     leftSelected.clear()
+    await fetchPhotos()
     ElMessage.success(`已删除 ${ids.length} 张照片`)
   } catch (e: any) {
     ElMessage.error(e.message || '操作失败')

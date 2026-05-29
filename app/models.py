@@ -168,6 +168,9 @@ class Project(Base):
         Enum(ProjectStatus, name="project_status"),
         nullable=False, default=ProjectStatus.not_started,
     )
+    is_manual: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="0"
+    )
     deleted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, default=None
     )
@@ -193,20 +196,46 @@ class Project(Base):
     customer: Mapped["User | None"] = relationship("User", foreign_keys=[customer_id], back_populates="projects_as_customer")
     creator: Mapped["User"] = relationship("User", foreign_keys=[created_by], back_populates="projects_created")
     template: Mapped["ProjectTemplate | None"] = relationship("ProjectTemplate", foreign_keys=[template_id])
+    groups: Mapped[list["ProjectGroup"]] = relationship("ProjectGroup", back_populates="project", cascade="all, delete-orphan")
     targets: Mapped[list["ProjectTarget"]] = relationship("ProjectTarget", back_populates="project", cascade="all, delete-orphan")
     photos: Mapped[list["Photo"]] = relationship("Photo", back_populates="project", cascade="all, delete-orphan")
     tags_list: Mapped[list["ProjectTag"]] = relationship("ProjectTag", back_populates="project", cascade="all, delete-orphan")
 
 
+class ProjectGroup(Base):
+    __tablename__ = "project_groups"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    project_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None, index=True
+    )
+
+    project: Mapped["Project"] = relationship("Project", back_populates="groups")
+    targets: Mapped[list["ProjectTarget"]] = relationship("ProjectTarget", back_populates="group")
+    photos: Mapped[list["Photo"]] = relationship("Photo", back_populates="group")
+
+
 class ProjectTarget(Base):
     __tablename__ = "project_targets"
     __table_args__ = (
-        UniqueConstraint('project_id', 'name', name='uq_project_target_name'),
+        UniqueConstraint('project_id', 'group_id', 'name', name='uq_project_target_group_name'),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     project_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
+    )
+    group_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("project_groups.id", ondelete="SET NULL"), nullable=True, index=True
     )
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     category_type: Mapped[CategoryType] = mapped_column(
@@ -231,6 +260,7 @@ class ProjectTarget(Base):
     )
 
     project: Mapped["Project"] = relationship("Project", back_populates="targets")
+    group: Mapped["ProjectGroup | None"] = relationship("ProjectGroup", back_populates="targets")
     photos: Mapped[list["Photo"]] = relationship("Photo", back_populates="target")
 
 
@@ -294,6 +324,9 @@ class Photo(Base):
     project_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
     )
+    group_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("project_groups.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     target_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("project_targets.id", ondelete="SET NULL"), nullable=True
     )
@@ -343,6 +376,7 @@ class Photo(Base):
     )
 
     project: Mapped["Project"] = relationship("Project", back_populates="photos")
+    group: Mapped["ProjectGroup | None"] = relationship("ProjectGroup", back_populates="photos")
     target: Mapped["ProjectTarget | None"] = relationship("ProjectTarget", back_populates="photos")
     tags: Mapped[list["ProjectTag"]] = relationship("ProjectTag", secondary=photo_tags, back_populates="photos")
     parent: Mapped["Photo | None"] = relationship("Photo", remote_side="Photo.id", foreign_keys=[parent_id])
@@ -484,6 +518,9 @@ class ReviewFeedback(Base):
         BigInteger, ForeignKey("photos.id", ondelete="CASCADE"), nullable=False
     )
     is_confirmed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    feedback_status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="revision"
+    )
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     annotation_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(

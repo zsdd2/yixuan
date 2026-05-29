@@ -53,6 +53,9 @@
               <el-button class="action-btn" @click="goImport">
                 📤 导入图片
               </el-button>
+              <el-button class="action-btn" @click="showGroupManager = true">
+                组合管理
+              </el-button>
               <el-button class="action-btn action-btn-primary" @click="showShareReview = true">
                 📤 分享审核
               </el-button>
@@ -89,8 +92,8 @@
             <!-- 进度快报 -->
             <div class="metric-block">
               <div class="metric-label">进度快报</div>
-              <div class="metric-value">{{ totalPhotoCount }} 张总图</div>
-              <div class="metric-sub">已选 {{ selectedPhotoCount }} · 精修 {{ retouchedPhotoCount }}</div>
+              <div class="metric-value">{{ progressQuickValue }}</div>
+              <div class="metric-sub">{{ progressQuickSub }}</div>
             </div>
           </div>
 
@@ -125,6 +128,48 @@
           </div>
         </div>
 
+        <template v-if="projectGroups.length > 0">
+          <div v-for="section in groupedTargetSections" :key="section.key" class="kanban-section group-kanban-section">
+            <div class="section-header">
+              <h3 class="section-title">{{ section.name }}</h3>
+              <span class="section-count">{{ section.targets.length }} 个目标</span>
+            </div>
+            <div class="kanban-subtitle">场景图</div>
+            <div class="kanban-grid">
+              <TargetCard
+                v-for="t in section.scene"
+                :key="t.id"
+                :target="t"
+                @navigate-to-lineage="onNavigateToLineage"
+                @open-shuttle="onOpenShuttle"
+                @drill="onDrill"
+                @complete="onComplete"
+                @edit="onEdit"
+                @delete="onDelete"
+                @set-status="onSetStatus"
+              />
+              <div v-if="section.scene.length === 0" class="empty-hint">暂无场景图目标</div>
+            </div>
+            <div class="kanban-subtitle">白图</div>
+            <div class="kanban-grid">
+              <TargetCard
+                v-for="t in section.white"
+                :key="t.id"
+                :target="t"
+                @navigate-to-lineage="onNavigateToLineage"
+                @open-shuttle="onOpenShuttle"
+                @drill="onDrill"
+                @complete="onComplete"
+                @edit="onEdit"
+                @delete="onDelete"
+                @set-status="onSetStatus"
+              />
+              <div v-if="section.white.length === 0" class="empty-hint">暂无白图目标</div>
+            </div>
+          </div>
+        </template>
+
+        <template v-else>
         <!-- 场景图区 -->
         <div class="kanban-section">
           <div class="section-header">
@@ -174,6 +219,7 @@
             </div>
           </div>
         </div>
+        </template>
       </div>
     </div>
 
@@ -241,6 +287,11 @@
             <el-radio value="white">白图</el-radio>
             <el-radio value="scene">场景图</el-radio>
           </el-radio-group>
+        </el-form-item>
+        <el-form-item label="组合">
+          <el-select v-model="newTarget.group_id" placeholder="未分组" clearable filterable style="width:100%">
+            <el-option v-for="g in projectGroups" :key="g.id" :label="g.name" :value="g.id" />
+          </el-select>
         </el-form-item>
         <el-form-item label="拍摄要求">
           <el-input v-model="newTarget.requirement_desc" type="textarea" :rows="3" placeholder="可选，填写拍摄要求" />
@@ -318,6 +369,11 @@
             <el-radio value="scene">场景图</el-radio>
           </el-radio-group>
         </el-form-item>
+        <el-form-item label="组合">
+          <el-select v-model="editForm.group_id" placeholder="未分组" clearable filterable style="width:100%">
+            <el-option v-for="g in projectGroups" :key="g.id" :label="g.name" :value="g.id" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="拍摄要求">
           <el-input v-model="editForm.requirement_desc" type="textarea" :rows="3" />
         </el-form-item>
@@ -342,6 +398,27 @@
     </el-dialog>
 
     <!-- 图片选择器 -->
+    <el-dialog v-model="showGroupManager" title="项目组合管理" width="680px">
+      <div class="group-manager">
+        <div class="group-create-row">
+          <el-input v-model="newGroupName" placeholder="输入组合/批次/商品组名称" clearable @keyup.enter="createGroup" />
+          <el-button type="primary" :loading="savingGroup" @click="createGroup">新增组合</el-button>
+        </div>
+        <el-table :data="projectGroups" border style="width: 100%">
+          <el-table-column prop="name" label="组合名称" min-width="180" />
+          <el-table-column prop="target_count" label="目标数" width="90" align="center" />
+          <el-table-column prop="photo_count" label="照片数" width="90" align="center" />
+          <el-table-column label="操作" width="170" align="center">
+            <template #default="{ row }">
+              <el-button size="small" text type="primary" @click="renameGroup(row)">改名</el-button>
+              <el-button size="small" text type="danger" @click="deleteGroup(row)">删除</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+        <div class="group-manager-tip">删除组合只会取消组合归属，不会删除目标和照片。</div>
+      </div>
+    </el-dialog>
+
     <ImagePicker
       v-model:visible="showImagePicker"
       category="sample"
@@ -385,6 +462,11 @@ const router = useRouter()
 const projectId = computed(() => route.params.id as string)
 const loading = ref(false)
 const targets = ref<TargetItem[]>([])
+interface ProjectGroup { id: number; project_id: number; name: string; description?: string | null; sort_order: number; target_count: number; photo_count: number }
+const projectGroups = ref<ProjectGroup[]>([])
+const showGroupManager = ref(false)
+const newGroupName = ref('')
+const savingGroup = ref(false)
 const activeTargetId = ref<number | null>(null)
 const lineageTargetId = ref<number | null>(null)
 const shuttleTargetId = ref<number | null>(null)
@@ -409,6 +491,7 @@ const showShareReview = ref(false)
 
 const newTarget = reactive({
   name: '',
+  group_id: null as number | null,
   category_type: 'white' as 'white' | 'scene',
   requirement_desc: '',
   sample_path: null as string | null,
@@ -517,6 +600,36 @@ const sceneTargets = computed(() =>
     .filter(t => t.category_type === 'scene')
     .sort((a, b) => (statusOrder[a.target_status] ?? 99) - (statusOrder[b.target_status] ?? 99))
 )
+const groupedTargetSections = computed(() => {
+  const sections = [
+    ...projectGroups.value.map(g => ({
+      key: `group-${g.id}`,
+      name: g.name,
+      targets: targets.value.filter(t => t.group_id === g.id),
+    })),
+    {
+      key: 'ungrouped',
+      name: '未分组',
+      targets: targets.value.filter(t => !t.group_id),
+    },
+  ].filter(section => section.targets.length > 0)
+  return sections.map(section => ({
+    ...section,
+    scene: section.targets.filter(t => t.category_type === 'scene'),
+    white: section.targets.filter(t => t.category_type === 'white'),
+  }))
+})
+const progressQuickValue = computed(() => {
+  const whiteDone = whiteTargets.value.filter(t => t.target_status === 'completed').length
+  const sceneDone = sceneTargets.value.filter(t => t.target_status === 'completed').length
+  return `白图 ${whiteDone}/${whiteTargets.value.length} · 场景 ${sceneDone}/${sceneTargets.value.length}`
+})
+const progressQuickSub = computed(() => {
+  const confirmed = targets.value.reduce((sum, t) => sum + (t.confirmed_count || 0), 0)
+  const retouched = targets.value.reduce((sum, t) => sum + (t.retouched_count || 0), 0)
+  const final = targets.value.reduce((sum, t) => sum + (t.final_count || 0), 0)
+  return `原图确认 ${confirmed} · 精修 ${retouched} · 成片 ${final}`
+})
 
 // ── 编辑相关 ─────────────────────────────────────────
 const showEditTarget = ref(false)
@@ -524,6 +637,7 @@ const editing = ref(false)
 const editingTargetId = ref<number | null>(null)
 const editForm = reactive({
   name: '',
+  group_id: null as number | null,
   category_type: 'white' as string,
   requirement_desc: '' as string | null,
   sample_path: null as string | null,
@@ -599,15 +713,76 @@ async function fetchTargets() {
     projectEstimatedEnd.value = projData.estimated_end_time ?? null
     projectCreatedAt.value = projData.created_at ?? null
     totalPhotoCount.value = projData.photo_count ?? 0
-
-    // 获取已选和精修数量（limit 最大 500）
-    const photosData = await request.get(`/api/v1/projects/${projectId.value}/photos?limit=500`)
-    selectedPhotoCount.value = photosData.items.filter((p: any) => p.status === 'selected').length
-    retouchedPhotoCount.value = photosData.items.filter((p: any) => p.process_state === 'retouched' || p.process_state === 'final').length
   } catch (e: any) {
     console.error('获取目标失败:', e)
   } finally {
     loading.value = false
+  }
+}
+
+async function fetchGroups() {
+  try {
+    const data = await request.get(`/api/v1/projects/${projectId.value}/groups`)
+    projectGroups.value = data.items || []
+  } catch {
+    projectGroups.value = []
+  }
+}
+
+async function createGroup() {
+  const name = newGroupName.value.trim()
+  if (!name) {
+    ElMessage.warning('请输入组合名称')
+    return
+  }
+  savingGroup.value = true
+  try {
+    await request.post(`/api/v1/projects/${projectId.value}/groups`, {
+      name,
+      sort_order: projectGroups.value.length,
+    })
+    newGroupName.value = ''
+    ElMessage.success('组合已创建')
+    await fetchGroups()
+  } catch (e: any) {
+    ElMessage.error(e.message || '创建组合失败')
+  } finally {
+    savingGroup.value = false
+  }
+}
+
+async function renameGroup(group: ProjectGroup) {
+  try {
+    const { value } = await ElMessageBox.prompt('请输入新的组合名称', '重命名组合', {
+      inputValue: group.name,
+      confirmButtonText: '保存',
+      cancelButtonText: '取消',
+      inputValidator: (value: string) => !!value.trim() || '名称不能为空',
+    })
+    await request.patch(`/api/v1/projects/${projectId.value}/groups/${group.id}`, {
+      name: value.trim(),
+    })
+    ElMessage.success('组合已更新')
+    await fetchGroups()
+    await fetchTargets()
+  } catch {}
+}
+
+async function deleteGroup(group: ProjectGroup) {
+  try {
+    await ElMessageBox.confirm(
+      `删除「${group.name}」后，目标和照片会保留，但会变为未分组。确定继续？`,
+      '删除组合',
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' },
+    )
+  } catch { return }
+  try {
+    await request.delete(`/api/v1/projects/${projectId.value}/groups/${group.id}`)
+    ElMessage.success('组合已删除')
+    await fetchGroups()
+    await fetchTargets()
+  } catch (e: any) {
+    ElMessage.error(e.message || '删除组合失败')
   }
 }
 
@@ -620,6 +795,7 @@ async function createTarget() {
   try {
     const data = await request.post(`/api/v1/projects/${projectId.value}/targets`, {
       name: newTarget.name.trim(),
+      group_id: newTarget.group_id,
       category_type: newTarget.category_type,
       requirement_desc: newTarget.requirement_desc || null,
       sample_path: newTarget.sample_path || null,
@@ -628,6 +804,7 @@ async function createTarget() {
     targets.value.push(data)
     showCreateTarget.value = false
     newTarget.name = ''
+    newTarget.group_id = null
     newTarget.requirement_desc = ''
     newTarget.sample_path = null
     ElMessage.success('目标已创建')
@@ -653,6 +830,7 @@ async function onComplete(targetId: number) {
 function onEdit(target: TargetItem) {
   editingTargetId.value = target.id
   editForm.name = target.name
+  editForm.group_id = target.group_id ?? null
   editForm.category_type = target.category_type
   editForm.requirement_desc = target.requirement_desc || ''
   editForm.sample_path = target.sample_path
@@ -695,6 +873,7 @@ async function submitEdit() {
   try {
     await request.patch(`/api/v1/projects/${projectId.value}/targets/${editingTargetId.value}`, {
       name: editForm.name.trim(),
+      group_id: editForm.group_id,
       category_type: editForm.category_type,
       requirement_desc: editForm.requirement_desc || null,
       sample_path: editForm.sample_path,
@@ -769,6 +948,7 @@ function goImport() {
 }
 
 onMounted(() => {
+  fetchGroups()
   fetchTargets()
 })
 </script>
@@ -965,6 +1145,34 @@ onMounted(() => {
   background: #f8f9fb;
   border-radius: 12px;
   padding: 20px 24px;
+}
+
+.group-kanban-section {
+  border: 1px solid #eef2f7;
+}
+
+.kanban-subtitle {
+  margin: 12px 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #606266;
+}
+
+.group-manager {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.group-create-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
+.group-manager-tip {
+  font-size: 12px;
+  color: #909399;
 }
 
 .section-header {

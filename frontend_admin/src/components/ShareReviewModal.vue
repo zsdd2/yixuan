@@ -8,6 +8,14 @@
   >
     <!-- 创建视图 -->
     <div v-if="viewMode === 'create'" class="share-modal">
+      <div class="stage-toolbar">
+        <span class="stage-label">审核阶段</span>
+        <el-radio-group v-model="reviewStage" size="small">
+          <el-radio-button label="raw">原图审核</el-radio-button>
+          <el-radio-button label="retouched">精修审核</el-radio-button>
+          <el-radio-button label="final">最终图审核</el-radio-button>
+        </el-radio-group>
+      </div>
       <!-- 左侧：分级选择菜单 -->
       <div class="left-panel">
         <div class="category-section" v-for="cat in categories" :key="cat.type">
@@ -195,6 +203,7 @@ const visible = computed({
 
 const categories = ref<any[]>([])
 const selectedTarget = ref<any>(null)
+const reviewStage = ref<'raw' | 'retouched' | 'final'>('raw')
 const photoType = ref<'raw' | 'retouched' | 'final'>('raw')
 const currentPhotos = ref<any[]>([])
 const loadingPhotos = ref(false)
@@ -208,10 +217,32 @@ const viewMode = ref<'create' | 'management'>('create')
 const sessions = ref<any[]>([])
 const loadingSessions = ref(false)
 
+const stageLabel = computed(() => ({
+  raw: '原图审核',
+  retouched: '精修审核',
+  final: '最终图审核',
+}[reviewStage.value]))
+
 watch(() => props.visible, async (val) => {
   if (val) {
     viewMode.value = 'create'
+    reviewStage.value = 'raw'
+    photoType.value = 'raw'
     await loadTargets()
+  }
+})
+
+watch(reviewStage, async (stage) => {
+  photoType.value = stage
+  selectedPhotos.value = []
+  if (selectedTarget.value) {
+    await loadPhotos()
+  }
+})
+
+watch(photoType, (stage) => {
+  if (reviewStage.value !== stage) {
+    reviewStage.value = stage
   }
 })
 
@@ -228,11 +259,11 @@ async function loadTargets() {
     const white = data.items.filter((t: any) => t.category_type === 'white')
     const scene = data.items.filter((t: any) => t.category_type === 'scene')
 
-    // 计算全部图片的总数
+    // 计算已分配图片的总数
     const totalCount = data.items.reduce((sum: number, t: any) => sum + (t.photo_count || 0), 0)
 
     categories.value = [
-      { type: 'all', label: '全部图片', targets: [{ id: 0, name: '全部图片', photo_count: totalCount }] },
+      { type: 'all', label: '已分配图片', targets: [{ id: 0, name: '已分配图片', photo_count: totalCount }] },
       { type: 'white', label: '白图', targets: white },
       { type: 'scene', label: '场景图', targets: scene },
     ]
@@ -266,6 +297,8 @@ async function loadPhotos() {
 
       if (selectedTarget.value.id !== 0) {
         params.target_id = selectedTarget.value.id
+      } else {
+        params.assigned_only = true
       }
 
       const data = await request.get(`/api/v1/projects/${props.projectId}/photos`, params)
@@ -295,17 +328,22 @@ function photoThumbUrl(photo: any): string {
   return path ? `/storage/${path}` : ''
 }
 
+function photoSelectionPayload(photo: any) {
+  const isAllAssigned = selectedTarget.value?.id === 0
+  return {
+    photo_id: photo.id,
+    version: photoType.value === 'retouched' ? photo.selectedVersion : null,
+    category_type: isAllAssigned ? (photo.category_type || 'all') : selectedTarget.value.category_type,
+    target_name: isAllAssigned ? (photo.target_name || '未命名目标') : selectedTarget.value.name,
+  }
+}
+
 function togglePhoto(photo: any) {
   const idx = selectedPhotos.value.findIndex(p => p.photo_id === photo.id)
   if (idx > -1) {
     selectedPhotos.value.splice(idx, 1)
   } else {
-    selectedPhotos.value.push({
-      photo_id: photo.id,
-      version: photoType.value === 'retouched' ? photo.selectedVersion : null,
-      category_type: selectedTarget.value.category_type,
-      target_name: selectedTarget.value.name,
-    })
+    selectedPhotos.value.push(photoSelectionPayload(photo))
   }
 }
 
@@ -320,12 +358,7 @@ function selectAll() {
   } else {
     currentPhotos.value.forEach(photo => {
       if (!isSelected(photo.id)) {
-        selectedPhotos.value.push({
-          photo_id: photo.id,
-          version: photoType.value === 'retouched' ? photo.selectedVersion : null,
-          category_type: selectedTarget.value.category_type,
-          target_name: selectedTarget.value.name,
-        })
+        selectedPhotos.value.push(photoSelectionPayload(photo))
       }
     })
   }
@@ -342,6 +375,7 @@ async function generateLink() {
     const result = await request.post('/api/v1/reviews/create', {
       project_id: props.projectId,
       photo_selections: selectedPhotos.value,
+      review_stage: reviewStage.value,
       expired_days: expiredDays.value,
     })
 
@@ -453,12 +487,31 @@ function formatDateTime(dateStr: string) {
 <style scoped>
 .share-modal {
   display: flex;
+  flex-wrap: wrap;
   gap: 16px;
   height: 600px;
 }
 
+.stage-toolbar {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.stage-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+}
+
 .left-panel {
   width: 240px;
+  height: calc(100% - 58px);
   border-right: 1px solid #e5e7eb;
   overflow-y: auto;
 }
@@ -503,6 +556,7 @@ function formatDateTime(dateStr: string) {
 
 .right-panel {
   flex: 1;
+  height: calc(100% - 58px);
   display: flex;
   flex-direction: column;
   overflow: hidden;

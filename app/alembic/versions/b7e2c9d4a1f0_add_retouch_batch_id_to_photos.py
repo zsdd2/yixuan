@@ -7,7 +7,6 @@ Create Date: 2026-05-22 16:20:00.000000
 """
 from alembic import op
 import sqlalchemy as sa
-from sqlalchemy import inspect
 
 
 revision = "b7e2c9d4a1f0"
@@ -17,14 +16,8 @@ depends_on = None
 
 
 def upgrade() -> None:
-    inspector = inspect(op.get_bind())
-    columns = {column["name"] for column in inspector.get_columns("photos")}
-    if "retouch_batch_id" not in columns:
-        op.add_column("photos", sa.Column("retouch_batch_id", sa.String(length=64), nullable=True))
-
-    indexes = {index["name"] for index in inspector.get_indexes("photos")}
-    if "ix_photos_retouch_batch_id" not in indexes:
-        op.create_index("ix_photos_retouch_batch_id", "photos", ["retouch_batch_id"], unique=False)
+    op.add_column("photos", sa.Column("retouch_batch_id", sa.String(length=64), nullable=True))
+    op.create_index("ix_photos_retouch_batch_id", "photos", ["retouch_batch_id"], unique=False)
 
 
 def downgrade() -> None:

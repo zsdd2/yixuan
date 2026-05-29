@@ -1,14 +1,13 @@
-"""
+﻿"""
 routers/projects.py —— 项目管理相关接口
 """
 from pathlib import Path
-from datetime import datetime, time, timezone
+from datetime import datetime, timezone
 from urllib.parse import quote
 import hashlib
 import io
 import zipfile
 
-from pydantic import BaseModel
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
@@ -18,11 +17,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.deps import CurrentUser
-from app.models import CategoryType, Client, Photo, PhotoStatus, ProcessState, Project, ProjectStatus, ProjectTag, ProjectTarget, ProjectTemplate, SystemTargetDictionary, TargetReferenceAsset, TargetStatus, TemplateTarget, User, photo_tags
+from app.models import CategoryType, Client, Photo, PhotoStatus, ProcessState, Project, ProjectGroup, ProjectStatus, ProjectTag, ProjectTarget, ProjectTemplate, SystemTargetDictionary, TargetStatus, TemplateTarget, User, photo_tags
 from app.schemas.project_schema import (
     ArchiveResponse,
     ProjectCreate,
     ProjectDetailResponse,
+    ProjectGroupCreate,
+    ProjectGroupListResponse,
+    ProjectGroupResponse,
+    ProjectGroupUpdate,
     ProjectInList,
     ProjectListResponse,
     ProjectResponse,
@@ -46,10 +49,17 @@ NAS_ROOT = Path(os.environ.get("NAS_MOUNT_PATH", "/mnt/nas_data"))
 router = APIRouter(prefix="/api/v1/projects", tags=["projects"])
 
 
-class TargetReferenceCreate(BaseModel):
-    asset_type: str
-    photo_id: int
-    notes: str | None = None
+async def _ensure_group(
+    db: AsyncSession,
+    project_id: int,
+    group_id: int | None,
+) -> ProjectGroup | None:
+    if group_id is None:
+        return None
+    group = await db.get(ProjectGroup, group_id)
+    if group is None or group.project_id != project_id or group.deleted_at is not None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"组合 id={group_id} 不存在或不属于该项目")
+    return group
 
 
 # ── 项目列表 ─────────────────────────────────────────────
@@ -455,6 +465,118 @@ async def get_project_detail(
 
 # ── 目标槽位 (Targets) ──────────────────────────────────
 
+@router.get("/{project_id}/groups", response_model=ProjectGroupListResponse, summary="获取项目组合")
+async def list_project_groups(
+    project_id: int,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> ProjectGroupListResponse:
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"项目 id={project_id} 不存在")
+    groups = (await db.execute(
+        select(ProjectGroup)
+        .where(ProjectGroup.project_id == project_id, ProjectGroup.deleted_at.is_(None))
+        .order_by(ProjectGroup.sort_order, ProjectGroup.id)
+    )).scalars().all()
+    group_ids = [g.id for g in groups]
+    target_counts: dict[int, int] = {}
+    photo_counts: dict[int, int] = {}
+    if group_ids:
+        target_counts = dict((await db.execute(
+            select(ProjectTarget.group_id, sa_func.count(ProjectTarget.id))
+            .where(ProjectTarget.group_id.in_(group_ids), ProjectTarget.deleted_at.is_(None))
+            .group_by(ProjectTarget.group_id)
+        )).all())
+        photo_counts = dict((await db.execute(
+            select(Photo.group_id, sa_func.count(Photo.id))
+            .where(Photo.group_id.in_(group_ids), Photo.deleted_at.is_(None))
+            .group_by(Photo.group_id)
+        )).all())
+    return ProjectGroupListResponse(
+        items=[
+            ProjectGroupResponse(
+                id=g.id,
+                project_id=g.project_id,
+                name=g.name,
+                description=g.description,
+                sort_order=g.sort_order,
+                target_count=target_counts.get(g.id, 0),
+                photo_count=photo_counts.get(g.id, 0),
+                created_at=g.created_at.isoformat(),
+            )
+            for g in groups
+        ],
+        total=len(groups),
+    )
+
+
+@router.post("/{project_id}/groups", response_model=ProjectGroupResponse, status_code=status.HTTP_201_CREATED, summary="创建项目组合")
+async def create_project_group(
+    project_id: int,
+    body: ProjectGroupCreate,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> ProjectGroupResponse:
+    project = await db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"项目 id={project_id} 不存在")
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="组合名称不能为空")
+    existing = await db.scalar(select(ProjectGroup).where(ProjectGroup.project_id == project_id, ProjectGroup.name == name, ProjectGroup.deleted_at.is_(None)))
+    if existing is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"组合「{name}」已存在")
+    group = ProjectGroup(project_id=project_id, name=name, description=body.description, sort_order=body.sort_order)
+    db.add(group)
+    await db.commit()
+    await db.refresh(group)
+    return ProjectGroupResponse(id=group.id, project_id=group.project_id, name=group.name, description=group.description, sort_order=group.sort_order, target_count=0, photo_count=0, created_at=group.created_at.isoformat())
+
+
+@router.patch("/{project_id}/groups/{group_id}", response_model=ProjectGroupResponse, summary="更新项目组合")
+async def update_project_group(
+    project_id: int,
+    group_id: int,
+    body: ProjectGroupUpdate,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> ProjectGroupResponse:
+    group = await _ensure_group(db, project_id, group_id)
+    update_data = body.model_dump(exclude_unset=True)
+    if "name" in update_data and update_data["name"] is not None:
+        name = update_data.pop("name").strip()
+        if not name:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="组合名称不能为空")
+        duplicate = await db.scalar(select(ProjectGroup).where(ProjectGroup.project_id == project_id, ProjectGroup.name == name, ProjectGroup.id != group_id, ProjectGroup.deleted_at.is_(None)))
+        if duplicate is not None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"组合「{name}」已存在")
+        group.name = name
+    for field, value in update_data.items():
+        setattr(group, field, value)
+    await db.commit()
+    await db.refresh(group)
+    target_count = (await db.execute(select(sa_func.count(ProjectTarget.id)).where(ProjectTarget.group_id == group_id, ProjectTarget.deleted_at.is_(None)))).scalar() or 0
+    photo_count = (await db.execute(select(sa_func.count(Photo.id)).where(Photo.group_id == group_id, Photo.deleted_at.is_(None)))).scalar() or 0
+    return ProjectGroupResponse(id=group.id, project_id=group.project_id, name=group.name, description=group.description, sort_order=group.sort_order, target_count=target_count, photo_count=photo_count, created_at=group.created_at.isoformat())
+
+
+@router.delete("/{project_id}/groups/{group_id}", status_code=status.HTTP_204_NO_CONTENT, summary="删除项目组合")
+async def delete_project_group(
+    project_id: int,
+    group_id: int,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    group = await _ensure_group(db, project_id, group_id)
+    group.deleted_at = datetime.now(timezone.utc)
+    for target in (await db.execute(select(ProjectTarget).where(ProjectTarget.group_id == group_id))).scalars().all():
+        target.group_id = None
+    for photo in (await db.execute(select(Photo).where(Photo.group_id == group_id))).scalars().all():
+        photo.group_id = None
+    await db.commit()
+
+
 @router.post(
     "/{project_id}/targets",
     response_model=TargetResponse,
@@ -474,8 +596,10 @@ async def create_target(
             detail=f"项目 id={project_id} 不存在",
         )
 
+    group = await _ensure_group(db, project_id, body.group_id)
     target = ProjectTarget(
         project_id=project_id,
+        group_id=body.group_id,
         name=body.name,
         category_type=CategoryType(body.category_type),
         sample_path=body.sample_path,
@@ -490,6 +614,8 @@ async def create_target(
     return TargetResponse(
         id=target.id,
         project_id=target.project_id,
+        group_id=target.group_id,
+        group_name=group.name if group else None,
         name=target.name,
         category_type=target.category_type.value,
         target_status=target.target_status.value,
@@ -611,12 +737,20 @@ async def list_targets(
     targets = (await db.execute(targets_stmt)).scalars().all()
 
     target_ids = [t.id for t in targets]
+    group_ids = list({t.group_id for t in targets if t.group_id is not None})
+    group_map: dict[int, ProjectGroup] = {}
+    if group_ids:
+        group_map = {
+            g.id: g
+            for g in (await db.execute(
+                select(ProjectGroup).where(ProjectGroup.id.in_(group_ids))
+            )).scalars().all()
+        }
     photo_counts: dict[int, int] = {}
     raw_counts: dict[int, int] = {}
     retouched_counts: dict[int, int] = {}
     final_counts: dict[int, int] = {}
     confirmed_counts: dict[int, int] = {}
-    fallback_samples: dict[int, str] = {}
     if target_ids:
         pc_stmt = (
             select(Photo.target_id, sa_func.count(Photo.id))
@@ -656,47 +790,6 @@ async def list_targets(
         )
         confirmed_counts = dict((await db.execute(confirmed_stmt)).all())
 
-        photo_sample_stmt = (
-            select(Photo)
-            .where(
-                Photo.target_id.in_(target_ids),
-                Photo.deleted_at.is_(None),
-                Photo.status != PhotoStatus.deleted,
-                Photo.process_state.in_([ProcessState.final, ProcessState.retouched, ProcessState.raw]),
-            )
-            .order_by(Photo.target_id, Photo.created_at.desc(), Photo.id.desc())
-        )
-        priority = {ProcessState.final: 3, ProcessState.retouched: 2, ProcessState.raw: 1}
-        best_priority: dict[int, int] = {}
-        for photo in (await db.execute(photo_sample_stmt)).scalars().all():
-            if photo.target_id is None:
-                continue
-            current_priority = priority.get(photo.process_state, 0)
-            if current_priority <= best_priority.get(photo.target_id, 0):
-                continue
-            path = photo.thumbnail_path or photo.original_path
-            if path:
-                fallback_samples[photo.target_id] = path
-                best_priority[photo.target_id] = current_priority
-
-        scene_goal_stmt = (
-            select(TargetReferenceAsset, Photo)
-            .join(Photo, Photo.id == TargetReferenceAsset.photo_id)
-            .where(
-                TargetReferenceAsset.target_id.in_(target_ids),
-                TargetReferenceAsset.asset_type == "scene_goal",
-                TargetReferenceAsset.is_current.is_(True),
-                Photo.deleted_at.is_(None),
-                Photo.status != PhotoStatus.deleted,
-            )
-            .order_by(TargetReferenceAsset.created_at.desc(), TargetReferenceAsset.id.desc())
-        )
-        for ref, photo in (await db.execute(scene_goal_stmt)).all():
-            if ref.target_id not in fallback_samples:
-                path = photo.thumbnail_path or photo.original_path
-                if path:
-                    fallback_samples[ref.target_id] = path
-
     status_order = {"not_started": 0, "shooting": 1, "retouching": 2, "client_review": 3, "completed": 4}
 
     items: list[TargetResponse] = []
@@ -719,11 +812,13 @@ async def list_targets(
         items.append(TargetResponse(
             id=t.id,
             project_id=t.project_id,
+            group_id=t.group_id,
+            group_name=group_map[t.group_id].name if t.group_id in group_map else None,
             name=t.name,
             category_type=t.category_type.value,
             target_status=computed_status,
             is_manual=t.is_manual,
-            sample_path=t.sample_path or fallback_samples.get(t.id),
+            sample_path=t.sample_path,
             requirement_desc=t.requirement_desc,
             sort_order=t.sort_order,
             photo_count=pc,
@@ -781,6 +876,13 @@ async def update_target(
                 detail="无效的分类值",
             )
 
+    group: ProjectGroup | None = None
+    if "group_id" in update_data:
+        group = await _ensure_group(db, project_id, update_data.pop("group_id"))
+        target.group_id = group.id if group else None
+    elif target.group_id is not None:
+        group = await db.get(ProjectGroup, target.group_id)
+
     for field, value in update_data.items():
         if value is not None:
             setattr(target, field, value)
@@ -797,6 +899,8 @@ async def update_target(
     return TargetResponse(
         id=target.id,
         project_id=target.project_id,
+        group_id=target.group_id,
+        group_name=group.name if group else None,
         name=target.name,
         category_type=target.category_type.value,
         target_status=target.target_status.value,
@@ -813,134 +917,6 @@ async def update_target(
 
 
 # ── 删除目标 ───────────────────────────────────────────
-
-@router.get(
-    "/{project_id}/targets/{target_id}/references",
-    summary="获取场景目标参考图和空场景版本",
-)
-async def list_target_references(
-    project_id: int,
-    target_id: int,
-    current_user: CurrentUser,
-    db: AsyncSession = Depends(get_db),
-):
-    target = await db.get(ProjectTarget, target_id)
-    if target is None or target.project_id != project_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"目标 id={target_id} 不存在")
-
-    stmt = (
-        select(TargetReferenceAsset, Photo)
-        .join(Photo, Photo.id == TargetReferenceAsset.photo_id)
-        .where(TargetReferenceAsset.target_id == target_id)
-        .order_by(TargetReferenceAsset.asset_type, TargetReferenceAsset.version.desc())
-    )
-    rows = (await db.execute(stmt)).all()
-    items = []
-    for ref, photo in rows:
-        items.append({
-            "id": ref.id,
-            "target_id": ref.target_id,
-            "asset_type": ref.asset_type,
-            "photo_id": ref.photo_id,
-            "version": ref.version,
-            "is_current": ref.is_current,
-            "notes": ref.notes,
-            "created_at": ref.created_at.isoformat(),
-            "photo": {
-                "id": photo.id,
-                "display_id": photo.display_id,
-                "original_filename": photo.original_filename,
-                "thumbnail_path": photo.thumbnail_path,
-                "original_path": photo.original_path,
-            },
-        })
-    return {"items": items, "total": len(items)}
-
-
-@router.post(
-    "/{project_id}/targets/{target_id}/references",
-    summary="设置场景目标参考图或空场景当前版本",
-)
-async def create_target_reference(
-    project_id: int,
-    target_id: int,
-    body: TargetReferenceCreate,
-    current_user: CurrentUser,
-    db: AsyncSession = Depends(get_db),
-):
-    if body.asset_type not in {"scene_goal", "empty_scene"}:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="asset_type 必须为 scene_goal 或 empty_scene")
-
-    target = await db.get(ProjectTarget, target_id)
-    if target is None or target.project_id != project_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"目标 id={target_id} 不存在")
-    if target.category_type != CategoryType.scene:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="只有场景图目标可以设置场景参考")
-
-    photo = await db.get(Photo, body.photo_id)
-    if photo is None or photo.project_id != project_id or photo.deleted_at is not None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"照片 id={body.photo_id} 不存在")
-
-    if body.asset_type == "scene_goal":
-        existing_ref = (await db.execute(
-            select(TargetReferenceAsset).where(
-                TargetReferenceAsset.target_id == target_id,
-                TargetReferenceAsset.asset_type == body.asset_type,
-                TargetReferenceAsset.photo_id == body.photo_id,
-                TargetReferenceAsset.is_current == True,
-            )
-        )).scalar_one_or_none()
-        if existing_ref is not None:
-            return {
-                "id": existing_ref.id,
-                "target_id": existing_ref.target_id,
-                "asset_type": existing_ref.asset_type,
-                "photo_id": existing_ref.photo_id,
-                "version": existing_ref.version,
-                "is_current": existing_ref.is_current,
-                "notes": existing_ref.notes,
-                "created_at": existing_ref.created_at.isoformat(),
-            }
-        new_version = 1
-    else:
-        max_version = (await db.execute(
-            select(sa_func.coalesce(sa_func.max(TargetReferenceAsset.version), 0))
-            .where(TargetReferenceAsset.target_id == target_id, TargetReferenceAsset.asset_type == body.asset_type)
-        )).scalar() or 0
-
-        old_refs = (await db.execute(
-            select(TargetReferenceAsset).where(
-                TargetReferenceAsset.target_id == target_id,
-                TargetReferenceAsset.asset_type == body.asset_type,
-                TargetReferenceAsset.is_current == True,
-            )
-        )).scalars().all()
-        for ref in old_refs:
-            ref.is_current = False
-        new_version = max_version + 1
-
-    ref = TargetReferenceAsset(
-        target_id=target_id,
-        asset_type=body.asset_type,
-        photo_id=body.photo_id,
-        version=new_version,
-        is_current=True,
-        notes=body.notes,
-    )
-    db.add(ref)
-    await db.commit()
-    await db.refresh(ref)
-    return {
-        "id": ref.id,
-        "target_id": ref.target_id,
-        "asset_type": ref.asset_type,
-        "photo_id": ref.photo_id,
-        "version": ref.version,
-        "is_current": ref.is_current,
-        "notes": ref.notes,
-        "created_at": ref.created_at.isoformat(),
-    }
-
 
 @router.delete(
     "/{project_id}/targets/{target_id}",
@@ -1042,6 +1018,7 @@ async def get_project_photos(
     process_state: str | None = Query(None, description="按处理阶段过滤: raw/retouched/final"),
     is_confirmed: bool | None = Query(None, description="按确认状态过滤"),
     parent_id: int | None = Query(None, description="按源原图ID过滤"),
+    group_id: int | None = Query(None, description="按组合/批次/商品组 ID 过滤"),
     target_id: int | None = Query(None, description="按目标槽位ID过滤"),
     db: AsyncSession = Depends(get_db),
 ) -> PhotoListResponse:
@@ -1119,6 +1096,10 @@ async def get_project_photos(
         base_stmt = base_stmt.where(Photo.parent_id == parent_id)
         count_where.append(Photo.parent_id == parent_id)
 
+    if group_id is not None:
+        base_stmt = base_stmt.where(Photo.group_id == group_id)
+        count_where.append(Photo.group_id == group_id)
+
     if target_id is not None:
         base_stmt = base_stmt.where(Photo.target_id == target_id)
         count_where.append(Photo.target_id == target_id)
@@ -1153,7 +1134,11 @@ async def get_project_photos(
     photos = (await db.execute(photos_stmt)).scalars().all()
 
     photo_ids = [p.id for p in photos]
+    target_ids = list({p.target_id for p in photos if p.target_id is not None})
+    group_ids = list({p.group_id for p in photos if p.group_id is not None})
     tag_map: dict[int, list[int]] = {pid: [] for pid in photo_ids}
+    target_map: dict[int, ProjectTarget] = {}
+    group_map: dict[int, ProjectGroup] = {}
     if photo_ids:
         tag_rows = (await db.execute(
             select(photo_tags.c.photo_id, photo_tags.c.tag_id)
@@ -1161,11 +1146,26 @@ async def get_project_photos(
         )).all()
         for pid, tid in tag_rows:
             tag_map[pid].append(tid)
+    if target_ids:
+        target_map = {
+            t.id: t
+            for t in (await db.execute(
+                select(ProjectTarget).where(ProjectTarget.id.in_(target_ids))
+            )).scalars().all()
+        }
+    if group_ids:
+        group_map = {
+            g.id: g
+            for g in (await db.execute(
+                select(ProjectGroup).where(ProjectGroup.id.in_(group_ids))
+            )).scalars().all()
+        }
 
     items = [
         PhotoInList(
             id=photo.id,
             project_id=photo.project_id,
+            group_id=photo.group_id,
             target_id=photo.target_id,
             parent_id=photo.parent_id,
             display_id=photo.display_id,
@@ -1177,8 +1177,11 @@ async def get_project_photos(
             process_state=photo.process_state.value,
             client_notes=photo.client_notes,
             revision_notes=photo.revision_notes,
-            retouch_quality=photo.retouch_quality,
-            retouch_batch_id=photo.retouch_batch_id,
+            retouch_quality=getattr(photo, "retouch_quality", None),
+            retouch_batch_id=getattr(photo, "retouch_batch_id", None),
+            group_name=group_map[photo.group_id].name if photo.group_id in group_map else None,
+            target_name=target_map[photo.target_id].name if photo.target_id in target_map else None,
+            category_type=target_map[photo.target_id].category_type.value if photo.target_id in target_map else None,
             shot_at=photo.shot_at.isoformat() if photo.shot_at else None,
             tag_ids=tag_map.get(photo.id, []),
             deleted_at=photo.deleted_at.isoformat() if photo.deleted_at else None,
@@ -1249,9 +1252,9 @@ async def upload_photo_to_project(
     project_id: int,
     file: UploadFile,
     current_user: CurrentUser,
+    group_id: int | None = Form(None, description="组合/批次/商品组 ID"),
     target_id: int | None = Form(None, description="目标槽位 ID（可为空）"),
     process_state: str = Form("raw", description="入库阶段: raw/retouched/final"),
-    shot_date: str | None = Form(None, description="手动指定拍摄日期 YYYY-MM-DD"),
     db: AsyncSession = Depends(get_db),
 ) -> PhotoResponse:
     project = await db.get(Project, project_id)
@@ -1261,6 +1264,7 @@ async def upload_photo_to_project(
             detail=f"项目 id={project_id} 不存在",
         )
 
+    group = await _ensure_group(db, project_id, group_id)
     if target_id is not None:
         target = await db.get(ProjectTarget, target_id)
         if target is None or target.project_id != project_id:
@@ -1302,20 +1306,6 @@ async def upload_photo_to_project(
     raw_dir = NAS_ROOT / str(project_id) / "raw"
     thumb_dir = NAS_ROOT / str(project_id) / "thumb"
 
-    manual_shot_at = None
-    if shot_date:
-        try:
-            manual_shot_at = datetime.combine(
-                datetime.strptime(shot_date, "%Y-%m-%d").date(),
-                time.min,
-                tzinfo=timezone.utc,
-            )
-        except ValueError:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="shot_date 必须是 YYYY-MM-DD 格式",
-            )
-
     try:
         original_path, thumb_path, shot_at = await run_in_threadpool(
             _save_and_thumbnail,
@@ -1324,8 +1314,6 @@ async def upload_photo_to_project(
             file_bytes,
             suffix,
         )
-        if manual_shot_at is not None:
-            shot_at = manual_shot_at
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -1335,6 +1323,7 @@ async def upload_photo_to_project(
     display_id = await _next_display_id(db, project_id)
     photo = Photo(
         project_id=project_id,
+        group_id=group_id,
         target_id=target_id,
         original_path=str(original_path),
         thumbnail_path=str(thumb_path),
@@ -1351,13 +1340,14 @@ async def upload_photo_to_project(
     return PhotoResponse(
         id=photo.id,
         project_id=photo.project_id,
+        group_id=photo.group_id,
+        group_name=group.name if group else None,
         target_id=photo.target_id,
         display_id=photo.display_id,
         original_path=photo.original_path,
         thumbnail_path=photo.thumbnail_path,
         status=photo.status.value,
         process_state=photo.process_state.value,
-        retouch_quality=photo.retouch_quality,
     )
 
 
@@ -1736,6 +1726,7 @@ async def download_final_photos(
         .where(
             ProjectTarget.project_id == project_id,
             ProjectTarget.deleted_at.is_(None),
+            ProjectTarget.target_status == TargetStatus.completed,
             ProjectTarget.category_type == CategoryType.white,
             Photo.process_state == ProcessState.final,
             Photo.status != PhotoStatus.deleted,
@@ -1752,6 +1743,7 @@ async def download_final_photos(
         .where(
             ProjectTarget.project_id == project_id,
             ProjectTarget.deleted_at.is_(None),
+            ProjectTarget.target_status == TargetStatus.completed,
             ProjectTarget.category_type == CategoryType.scene,
             Photo.process_state == ProcessState.final,
             Photo.status != PhotoStatus.deleted,

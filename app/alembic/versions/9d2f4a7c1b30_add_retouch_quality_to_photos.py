@@ -7,7 +7,6 @@ Create Date: 2026-05-22 11:45:00.000000
 """
 from alembic import op
 import sqlalchemy as sa
-from sqlalchemy import inspect
 
 
 revision = "9d2f4a7c1b30"
@@ -17,9 +16,7 @@ depends_on = None
 
 
 def upgrade() -> None:
-    columns = {column["name"] for column in inspect(op.get_bind()).get_columns("photos")}
-    if "retouch_quality" not in columns:
-        op.add_column("photos", sa.Column("retouch_quality", sa.String(length=32), nullable=True))
+    op.add_column("photos", sa.Column("retouch_quality", sa.String(length=32), nullable=True))
 
 
 def downgrade() -> None:

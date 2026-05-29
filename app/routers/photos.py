@@ -1,4 +1,4 @@
-"""
+﻿"""
 routers/photos.py —— 图片相关接口
   - POST  /api/v1/photos/upload        上传本地图片
   - POST  /api/v1/photos/scan-nas      触发 NAS 目录扫描并异步入库
@@ -8,7 +8,7 @@ routers/photos.py —— 图片相关接口
 import hashlib
 import io
 import uuid
-from datetime import datetime, time, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import AsyncSessionLocal, get_db
 from app.deps import CurrentUser
-from app.models import CategoryType, Client, Photo, PhotoStatus, ProcessState, Project, ProjectTag, ProjectTarget, photo_tags
+from app.models import CategoryType, Client, Photo, PhotoStatus, ProcessState, Project, ProjectGroup, ProjectTag, ProjectTarget, photo_tags
 from app.services.delivery_zip_service import mark_zip_dirty
 from app.schemas.photo_schema import (
     BulkTagRequest,
@@ -57,20 +57,6 @@ SUPPORTED_SUFFIXES = set(
 _scan_tasks: dict[str, dict[str, Any]] = {}
 
 router = APIRouter(prefix="/api/v1/photos", tags=["photos"])
-
-VALID_RETOUCH_QUALITIES = {"generated", "generated_4k", "high_res"}
-
-
-def _normalize_retouch_quality(value: str | None) -> str | None:
-    if value is None or value == "":
-        return None
-    if value not in VALID_RETOUCH_QUALITIES:
-        valid = sorted(VALID_RETOUCH_QUALITIES)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"无效的精修分类 '{value}'，合法值：{valid}",
-        )
-    return value
 
 
 async def _next_display_id(db: AsyncSession, project_id: int) -> int:
@@ -130,19 +116,6 @@ def _extract_shot_at(img: Image.Image) -> datetime | None:
         return None
 
 
-def _parse_manual_shot_date(value: str | None) -> datetime | None:
-    if not value:
-        return None
-    try:
-        parsed = datetime.strptime(value, "%Y-%m-%d").date()
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="shot_date 必须是 YYYY-MM-DD 格式",
-        )
-    return datetime.combine(parsed, time.min, tzinfo=timezone.utc)
-
-
 def _save_and_thumbnail(
     raw_dir: Path,
     thumb_dir: Path,
@@ -192,17 +165,30 @@ def _hard_delete_file(path_str: str | None) -> tuple[int, int, str | None]:
         return (0, 0, f"删除失败 {path_str}: {exc}")
 
 
+async def _ensure_group(
+    db: AsyncSession,
+    project_id: int,
+    group_id: int | None,
+) -> ProjectGroup | None:
+    if group_id is None:
+        return None
+    group = await db.get(ProjectGroup, group_id)
+    if group is None or group.project_id != project_id or group.deleted_at is not None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"组合 id={group_id} 不存在或不属于该项目")
+    return group
+
+
 # ── 后台扫描任务 ─────────────────────────────────────────
 
 async def _run_scan_task(
     task_id: str,
     project_id: int,
+    group_id: int | None,
     target_id: int | None,
     scan_dir: Path,
     generate_thumbnails: bool,
     process_state: ProcessState = ProcessState.raw,
     tag_ids: list[int] | None = None,
-    shot_at_override: datetime | None = None,
 ) -> None:
     state = _scan_tasks[task_id]
     state["status"] = "running"
@@ -264,9 +250,6 @@ async def _run_scan_task(
                         )
 
                 # 路径自动关联：如果未指定 target_id，尝试根据文件路径匹配目标
-                if shot_at_override is not None:
-                    shot_at = shot_at_override
-
                 resolved_target_id = target_id
                 if resolved_target_id is None and targets_map:
                     for folder_path, tid in targets_map.items():
@@ -277,6 +260,7 @@ async def _run_scan_task(
                 current_max += 1
                 photo = Photo(
                     project_id=project_id,
+                    group_id=group_id,
                     target_id=resolved_target_id,
                     original_path=original_path_str,
                     original_filename=file_path.name,
@@ -329,10 +313,10 @@ async def _run_scan_task(
 async def upload_photo(
     current_user: CurrentUser,
     project_id: int = Form(..., description="所属项目 ID"),
+    group_id: int | None = Form(None, description="组合/批次/商品组 ID"),
     target_id: int | None = Form(None, description="目标槽位 ID（可为空）"),
     process_state: str = Form("raw", description="入库阶段: raw/retouched/final"),
     tag_ids: str = Form("", description="逗号分隔的标签ID列表，如 1,2,3"),
-    shot_date: str | None = Form(None, description="手动指定拍摄日期 YYYY-MM-DD"),
     file: UploadFile = ...,
     db: AsyncSession = Depends(get_db),
 ) -> PhotoResponse:
@@ -343,6 +327,7 @@ async def upload_photo(
             detail=f"项目 id={project_id} 不存在",
         )
 
+    group = await _ensure_group(db, project_id, group_id)
     if target_id is not None:
         target = await db.get(ProjectTarget, target_id)
         if target is None or target.project_id != project_id:
@@ -383,8 +368,6 @@ async def upload_photo(
     raw_dir = NAS_ROOT / str(project_id) / "raw"
     thumb_dir = NAS_ROOT / str(project_id) / "thumb"
 
-    manual_shot_at = _parse_manual_shot_date(shot_date)
-
     try:
         original_path, thumb_path, shot_at = await run_in_threadpool(
             _save_and_thumbnail,
@@ -393,8 +376,6 @@ async def upload_photo(
             file_bytes,
             suffix,
         )
-        if manual_shot_at is not None:
-            shot_at = manual_shot_at
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -406,6 +387,7 @@ async def upload_photo(
     display_id = await _next_display_id(db, project_id)
     photo = Photo(
         project_id=project_id,
+        group_id=group_id,
         target_id=target_id,
         original_path=str(original_path),
         original_filename=file.filename,
@@ -434,6 +416,8 @@ async def upload_photo(
     return PhotoResponse(
         id=photo.id,
         project_id=photo.project_id,
+        group_id=photo.group_id,
+        group_name=group.name if group else None,
         target_id=photo.target_id,
         display_id=photo.display_id,
         original_path=photo.original_path,
@@ -441,7 +425,6 @@ async def upload_photo(
         thumbnail_path=photo.thumbnail_path,
         status=photo.status.value,
         process_state=photo.process_state.value,
-        retouch_quality=photo.retouch_quality,
     )
 
 
@@ -464,6 +447,7 @@ async def scan_nas(
             detail=f"项目 id={body.project_id} 不存在",
         )
 
+    await _ensure_group(db, body.project_id, body.group_id)
     if body.target_id is not None:
         target = await db.get(ProjectTarget, body.target_id)
         if target is None or target.project_id != body.project_id:
@@ -493,8 +477,6 @@ async def scan_nas(
             detail=f"NAS 路径不存在或不是目录：{body.nas_path}",
         )
 
-    manual_shot_at = _parse_manual_shot_date(body.shot_date)
-
     task_id = str(uuid.uuid4())
     _scan_tasks[task_id] = {
         "status": "queued",
@@ -509,12 +491,12 @@ async def scan_nas(
         _run_scan_task,
         task_id=task_id,
         project_id=body.project_id,
+        group_id=body.group_id,
         target_id=body.target_id,
         scan_dir=scan_dir,
         generate_thumbnails=body.generate_thumbnails,
         process_state=ps,
         tag_ids=body.tag_ids or None,
-        shot_at_override=manual_shot_at,
     )
 
     return ScanNasResponse(
@@ -562,10 +544,10 @@ async def bulk_update_photos(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> BulkUpdateResponse:
-    if body.status is None and body.target_id is None and body.process_state is None and not body.remove_from_target:
+    if body.status is None and body.target_id is None and body.group_id is None and body.process_state is None and not body.remove_from_target and not body.remove_from_group:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="至少需要提供一个更新字段：status / target_id / remove_from_target / process_state",
+            detail="至少需要提供一个更新字段：status / target_id / group_id / remove_from_target / remove_from_group / process_state",
         )
 
     if body.status is not None:
@@ -596,6 +578,12 @@ async def bulk_update_photos(
                 detail=f"目标 id={body.target_id} 不存在",
             )
 
+    group: ProjectGroup | None = None
+    if body.group_id is not None:
+        group = await db.get(ProjectGroup, body.group_id)
+        if group is None or group.deleted_at is not None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"组合 id={body.group_id} 不存在")
+
     stmt = select(Photo).where(Photo.id.in_(body.photo_ids))
     result = await db.execute(stmt)
     photos = result.scalars().all()
@@ -617,8 +605,16 @@ async def bulk_update_photos(
                 photo.deleted_at = None
         if body.target_id is not None:
             photo.target_id = body.target_id
+            if target.group_id is not None:
+                photo.group_id = target.group_id
         elif body.remove_from_target:
             photo.target_id = None
+        if body.group_id is not None:
+            if group and group.project_id != photo.project_id:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="组合与照片不属于同一项目")
+            photo.group_id = body.group_id
+        elif body.remove_from_group:
+            photo.group_id = None
         if body.process_state is not None:
             photo.process_state = ProcessState(body.process_state)
 
@@ -895,19 +891,11 @@ async def portfolio_list(
         .join(Client, Project.client_id == Client.id)
         .outerjoin(ProjectTarget, Photo.target_id == ProjectTarget.id)
         .where(
-            Photo.deleted_at.is_(None),
             Photo.status != PhotoStatus.deleted,
             Photo.process_state == ProcessState(process_state),
             Project.deleted_at.is_(None),
         )
     )
-
-    if process_state == ProcessState.retouched.value:
-        base = base.where(
-            (Photo.parent_id.isnot(None)) | (Photo.is_locked.is_(True)) | (Photo.is_confirmed.is_(True))
-        )
-    elif process_state == ProcessState.final.value:
-        base = base.where(Photo.target_id.isnot(None))
 
     if client_id is not None:
         base = base.where(Project.client_id == client_id)
@@ -1042,12 +1030,9 @@ async def upload_retouched(
     target_id: int = Form(...),
     parent_id: int = Form(..., description="确认原图 ID"),
     revision_notes: str | None = Form(None, description="修改说明"),
-    retouch_quality: str | None = Form(None, description="精修分类: generated/generated_4k/high_res"),
-    retouch_batch_id: str | None = Form(None, description="同一次精修迭代批次号"),
     existing_photo_id: int | None = Form(None, description="已有照片 ID（与 file 互斥）"),
     db: AsyncSession = Depends(get_db),
 ) -> PhotoResponse:
-    normalized_quality = _normalize_retouch_quality(retouch_quality)
     parent_photo = await db.get(Photo, parent_id)
     if parent_photo is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"原图 id={parent_id} 不存在")
@@ -1060,26 +1045,11 @@ async def upload_retouched(
     if project is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"项目 id={project_id} 不存在")
 
-    batch_id = retouch_batch_id or f"retouch-{uuid.uuid4().hex}"
-    existing_batch_version = None
-    if retouch_batch_id:
-        existing_batch_version = (await db.execute(
-            select(Photo.version)
-            .where(
-                Photo.parent_id == parent_id,
-                Photo.process_state == ProcessState.retouched,
-                Photo.retouch_batch_id == retouch_batch_id,
-            )
-            .limit(1)
-        )).scalar_one_or_none()
-    if existing_batch_version is not None:
-        new_version = existing_batch_version
-    else:
-        max_version = (await db.execute(
-            select(sa_func.coalesce(sa_func.max(Photo.version), 0))
-            .where(Photo.parent_id == parent_id, Photo.process_state == ProcessState.retouched)
-        )).scalar() or 0
-        new_version = max_version + 1
+    max_version = (await db.execute(
+        select(sa_func.coalesce(sa_func.max(Photo.version), 0))
+        .where(Photo.parent_id == parent_id, Photo.process_state == ProcessState.retouched)
+    )).scalar() or 0
+    new_version = max_version + 1
 
     if existing_photo_id is not None:
         existing_photo = await db.get(Photo, existing_photo_id)
@@ -1093,8 +1063,6 @@ async def upload_retouched(
         existing_photo.target_id = target_id
         existing_photo.version = new_version
         existing_photo.revision_notes = revision_notes
-        existing_photo.retouch_quality = normalized_quality
-        existing_photo.retouch_batch_id = batch_id
         await db.commit()
         await db.refresh(existing_photo)
 
@@ -1113,8 +1081,6 @@ async def upload_retouched(
             process_state=existing_photo.process_state.value,
             client_notes=existing_photo.client_notes,
             revision_notes=existing_photo.revision_notes,
-            retouch_quality=existing_photo.retouch_quality,
-            retouch_batch_id=existing_photo.retouch_batch_id,
         )
 
     if file is None:
@@ -1146,8 +1112,6 @@ async def upload_retouched(
         thumbnail_path=str(thumb_path),
         process_state=ProcessState.retouched,
         revision_notes=revision_notes,
-        retouch_quality=normalized_quality,
-        retouch_batch_id=batch_id,
         shot_at=shot_at,
     )
     db.add(photo)
@@ -1169,185 +1133,7 @@ async def upload_retouched(
         process_state=photo.process_state.value,
         client_notes=photo.client_notes,
         revision_notes=photo.revision_notes,
-        retouch_quality=photo.retouch_quality,
-        retouch_batch_id=photo.retouch_batch_id,
     )
-@router.post(
-    "/upload-final",
-    response_model=PhotoResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="上传最终图并关联单张精修图",
-)
-async def upload_final(
-    current_user: CurrentUser,
-    file: UploadFile = None,
-    project_id: int = Form(...),
-    target_id: int = Form(...),
-    parent_id: int = Form(..., description="精修图 ID"),
-    revision_notes: str | None = Form(None, description="最终图说明"),
-    existing_photo_id: int | None = Form(None, description="已有照片 ID（与 file 互斥）"),
-    db: AsyncSession = Depends(get_db),
-) -> PhotoResponse:
-    parent_photo = await db.get(Photo, parent_id)
-    if parent_photo is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"精修图 id={parent_id} 不存在")
-    if parent_photo.process_state != ProcessState.retouched:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="parent_id 必须指向 process_state=retouched 的照片")
-
-    project = await db.get(Project, project_id)
-    if project is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"项目 id={project_id} 不存在")
-
-    max_version = (await db.execute(
-        select(sa_func.coalesce(sa_func.max(Photo.version), 0))
-        .where(Photo.parent_id == parent_id, Photo.process_state == ProcessState.final)
-    )).scalar() or 0
-    new_version = max_version + 1
-
-    if existing_photo_id is not None:
-        existing_photo = await db.get(Photo, existing_photo_id)
-        if existing_photo is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"照片 id={existing_photo_id} 不存在")
-        if existing_photo.project_id != project_id:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="照片不属于该项目")
-        existing_photo.process_state = ProcessState.final
-        existing_photo.parent_id = parent_id
-        existing_photo.target_id = target_id
-        existing_photo.version = new_version
-        existing_photo.revision_notes = revision_notes
-        await db.commit()
-        await db.refresh(existing_photo)
-        await mark_zip_dirty(project_id, db)
-        return PhotoResponse(
-            id=existing_photo.id,
-            project_id=existing_photo.project_id,
-            target_id=existing_photo.target_id,
-            parent_id=existing_photo.parent_id,
-            display_id=existing_photo.display_id,
-            version=existing_photo.version,
-            is_confirmed=existing_photo.is_confirmed,
-            original_path=existing_photo.original_path,
-            original_filename=existing_photo.original_filename,
-            thumbnail_path=existing_photo.thumbnail_path,
-            status=existing_photo.status.value,
-            process_state=existing_photo.process_state.value,
-            client_notes=existing_photo.client_notes,
-            revision_notes=existing_photo.revision_notes,
-            retouch_quality=existing_photo.retouch_quality,
-        )
-
-    if file is None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="必须上传文件或提供 existing_photo_id")
-
-    file_bytes = await file.read()
-    file_hash = hashlib.sha256(file_bytes).hexdigest()
-    suffix = Path(file.filename).suffix.lower() if file.filename else ".jpg"
-    folder = NAS_ROOT / str(project_id)
-    final_dir = folder / "final"
-    thumb_dir = folder / "thumb"
-    saved_path, thumb_path, shot_at = await run_in_threadpool(
-        _save_and_thumbnail, final_dir, thumb_dir, file_bytes, suffix
-    )
-    display_id = await _next_display_id(db, project_id)
-    photo = Photo(
-        project_id=project_id,
-        target_id=target_id,
-        parent_id=parent_id,
-        display_id=display_id,
-        version=new_version,
-        original_path=str(saved_path),
-        original_filename=file.filename if file else None,
-        file_hash=file_hash,
-        thumbnail_path=str(thumb_path),
-        process_state=ProcessState.final,
-        revision_notes=revision_notes,
-        shot_at=shot_at,
-    )
-    db.add(photo)
-    await db.commit()
-    await db.refresh(photo)
-    await mark_zip_dirty(project_id, db)
-    return PhotoResponse(
-        id=photo.id,
-        project_id=photo.project_id,
-        target_id=photo.target_id,
-        parent_id=photo.parent_id,
-        display_id=photo.display_id,
-        version=photo.version,
-        is_confirmed=photo.is_confirmed,
-        original_path=photo.original_path,
-        original_filename=photo.original_filename,
-        thumbnail_path=photo.thumbnail_path,
-        status=photo.status.value,
-        process_state=photo.process_state.value,
-        client_notes=photo.client_notes,
-        revision_notes=photo.revision_notes,
-        retouch_quality=photo.retouch_quality,
-    )
-
-
-@router.post(
-    "/{photo_id}/promote-final",
-    response_model=PhotoResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="从一张精修图生成完成图记录",
-)
-async def promote_retouched_to_final(
-    photo_id: int,
-    current_user: CurrentUser,
-    db: AsyncSession = Depends(get_db),
-) -> PhotoResponse:
-    retouched = await db.get(Photo, photo_id)
-    if retouched is None or retouched.deleted_at is not None or retouched.status == PhotoStatus.deleted:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"精修图 id={photo_id} 不存在")
-    if retouched.process_state != ProcessState.retouched:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="只能将 process_state=retouched 的照片生成完成图")
-    if retouched.target_id is None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="精修图必须属于一个子项目")
-
-    max_version = (await db.execute(
-        select(sa_func.coalesce(sa_func.max(Photo.version), 0))
-        .where(Photo.parent_id == retouched.id, Photo.process_state == ProcessState.final)
-    )).scalar() or 0
-
-    final_photo = Photo(
-        project_id=retouched.project_id,
-        target_id=retouched.target_id,
-        parent_id=retouched.id,
-        display_id=await _next_display_id(db, retouched.project_id),
-        version=max_version + 1,
-        original_path=retouched.original_path,
-        original_filename=retouched.original_filename,
-        file_hash=None,
-        thumbnail_path=retouched.thumbnail_path,
-        process_state=ProcessState.final,
-        revision_notes=retouched.revision_notes,
-        shot_at=retouched.shot_at,
-    )
-    db.add(final_photo)
-    await db.commit()
-    await db.refresh(final_photo)
-    await mark_zip_dirty(retouched.project_id, db)
-
-    return PhotoResponse(
-        id=final_photo.id,
-        project_id=final_photo.project_id,
-        target_id=final_photo.target_id,
-        parent_id=final_photo.parent_id,
-        display_id=final_photo.display_id,
-        version=final_photo.version,
-        is_confirmed=final_photo.is_confirmed,
-        original_path=final_photo.original_path,
-        original_filename=final_photo.original_filename,
-        thumbnail_path=final_photo.thumbnail_path,
-        status=final_photo.status.value,
-        process_state=final_photo.process_state.value,
-        client_notes=final_photo.client_notes,
-        revision_notes=final_photo.revision_notes,
-        retouch_quality=final_photo.retouch_quality,
-    )
-
-
 # ── 更新备注（修改说明 / 客户备注）──────────────────────────
 
 @router.patch(

@@ -7,7 +7,6 @@ Create Date: 2026-05-22 12:05:00.000000
 """
 from alembic import op
 import sqlalchemy as sa
-from sqlalchemy import inspect
 
 
 revision = "a6c3f8d1e2b4"
@@ -17,9 +16,6 @@ depends_on = None
 
 
 def upgrade() -> None:
-    if inspect(op.get_bind()).has_table("target_reference_assets"):
-        return
-
     op.create_table(
         "target_reference_assets",
         sa.Column("id", sa.BigInteger(), autoincrement=True, nullable=False),

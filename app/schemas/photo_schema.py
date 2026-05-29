@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 class PhotoInList(BaseModel):
     id: int
     project_id: int
+    group_id: int | None = None
     target_id: int | None = None
     parent_id: int | None = None
     display_id: int = 0
@@ -18,6 +19,9 @@ class PhotoInList(BaseModel):
     revision_notes: str | None = None
     retouch_quality: str | None = None
     retouch_batch_id: str | None = None
+    group_name: str | None = None
+    target_name: str | None = None
+    category_type: str | None = None
     shot_at: str | None = None
     tag_ids: list[int] = Field(default_factory=list)
     deleted_at: str | None = None
@@ -27,8 +31,8 @@ class PhotoInList(BaseModel):
 
 
 class PhotoListResponse(BaseModel):
-    total: int = Field(..., description="总照片数")
-    items: list[PhotoInList] = Field(..., description="当前页照片列表")
+    total: int
+    items: list[PhotoInList]
     skip: int
     limit: int
 
@@ -36,6 +40,7 @@ class PhotoListResponse(BaseModel):
 class PhotoResponse(BaseModel):
     id: int
     project_id: int
+    group_id: int | None = None
     target_id: int | None = None
     parent_id: int | None = None
     display_id: int = 0
@@ -50,22 +55,21 @@ class PhotoResponse(BaseModel):
     revision_notes: str | None = None
     retouch_quality: str | None = None
     retouch_batch_id: str | None = None
+    group_name: str | None = None
+    target_name: str | None = None
 
     model_config = {"from_attributes": True}
 
 
 class ScanNasRequest(BaseModel):
-    project_id: int = Field(..., description="目标项目 ID")
-    target_id: int | None = Field(None, description="目标槽位 ID（可为空）")
-    nas_path: str = Field(
-        ...,
-        description="相对于 NAS 根目录的扫描路径",
-        examples=["2024/client_a"],
-    )
-    generate_thumbnails: bool = Field(True, description="是否生成 WebP 缩略图")
-    process_state: str = Field("raw", description="入库阶段: raw/retouched/final")
-    tag_ids: list[int] = Field(default_factory=list, description="入库时附加的标签ID列表")
-    shot_date: str | None = Field(None, description="手动指定拍摄日期 YYYY-MM-DD；为空时自动读取 EXIF")
+    project_id: int
+    group_id: int | None = None
+    target_id: int | None = None
+    nas_path: str
+    generate_thumbnails: bool = True
+    process_state: str = "raw"
+    tag_ids: list[int] = Field(default_factory=list)
+    shot_date: str | None = None
 
 
 class ScanNasResponse(BaseModel):
@@ -86,14 +90,16 @@ class ScanTaskStatusResponse(BaseModel):
 
 class BulkUpdateRequest(BaseModel):
     photo_ids: list[int] = Field(..., min_length=1, max_length=500)
-    status: str | None = Field(None, description="目标状态")
-    target_id: int | None = Field(None, description="目标槽位 ID（移入）")
-    remove_from_target: bool = Field(False, description="设为 true 则将照片从当前 Target 移出（target_id 置空）")
-    process_state: str | None = Field(None, description="处理阶段: raw/retouched/final")
+    status: str | None = None
+    group_id: int | None = None
+    remove_from_group: bool = False
+    target_id: int | None = None
+    remove_from_target: bool = False
+    process_state: str | None = None
 
 
 class BulkUpdateResponse(BaseModel):
-    updated: int = Field(..., description="实际更新的照片数量")
+    updated: int
     message: str
 
 
@@ -107,23 +113,21 @@ class SoftDeleteResponse(BaseModel):
 
 
 class HardDeleteResponse(BaseModel):
-    deleted: int = Field(..., description="删除的数据库记录数")
-    files_deleted: int = Field(0, description="物理删除的文件数")
-    files_missing: int = Field(0, description="路径不存在或已被清理的文件数")
-    errors: list[str] = Field(default_factory=list, description="删除过程中的错误")
+    deleted: int
+    files_deleted: int = 0
+    files_missing: int = 0
+    errors: list[str] = Field(default_factory=list)
 
 
 class BulkTagRequest(BaseModel):
     photo_ids: list[int] = Field(..., min_length=1, max_length=500)
-    tag_ids: list[int] = Field(..., min_length=1, description="要添加或移除的标签ID")
+    tag_ids: list[int] = Field(..., min_length=1)
 
 
 class BulkTagResponse(BaseModel):
     affected: int
     message: str
 
-
-# ── 作品中心 (Portfolio) ──────────────────────────────────
 
 class PortfolioItem(BaseModel):
     id: int
@@ -158,8 +162,6 @@ class PortfolioFilterResponse(BaseModel):
     projects: list[PortfolioFilterOption]
     target_names: list[str]
 
-
-# ── 确认原图 & 精修备注 ─────────────────────────────────────
 
 class ConfirmRawRequest(BaseModel):
     photo_ids: list[int] = Field(..., min_length=1, max_length=500)

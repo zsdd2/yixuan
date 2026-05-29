@@ -43,6 +43,44 @@ from app.schemas.review_schema import (
 router = APIRouter(prefix="/api/v1/reviews", tags=["reviews"])
 NAS_ROOT = Path(os.environ.get("NAS_MOUNT_PATH", "/mnt/nas_data"))
 
+REVIEW_STAGE_LABELS = {
+    "raw": "原图审核",
+    "retouched": "精修审核",
+    "final": "最终图审核",
+}
+
+FEEDBACK_STATUSES = {"approved", "revision", "discarded"}
+
+
+def _normalize_review_stage(stage: str | None) -> str:
+    value = (stage or "raw").strip()
+    if value not in REVIEW_STAGE_LABELS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="review_stage must be one of: raw, retouched, final",
+        )
+    return value
+
+
+def _feedback_status(is_confirmed: bool, comment: str | None, requested: str | None = None) -> str:
+    if requested:
+        value = requested.strip()
+        if value not in FEEDBACK_STATUSES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="feedback_status must be one of: approved, revision, discarded",
+            )
+        return value
+    if is_confirmed:
+        return "approved"
+    if (comment or "").strip() in {"弃用", "寮冪敤"}:
+        return "discarded"
+    return "revision"
+
+
+def _session_stage(session: ReviewSession) -> str:
+    return _normalize_review_stage((session.selected_photos or {}).get("review_stage"))
+
 
 def _save_annotation_image(data_url: str | None, session_id: int, photo_id: int) -> str | None:
     if not data_url:
@@ -84,6 +122,7 @@ async def create_review_session(
     body: CreateReviewRequest,
     db: AsyncSession = Depends(get_db),
 ):
+    review_stage = _normalize_review_stage(body.review_stage)
     project = await db.get(Project, body.project_id)
     if project is None:
         raise HTTPException(
@@ -101,7 +140,8 @@ async def create_review_session(
             ReviewSession.is_disabled == False,
         )
     )
-    existing_session = (await db.execute(existing_stmt)).scalars().first()
+    existing_sessions = (await db.execute(existing_stmt)).scalars().all()
+    existing_session = next((item for item in existing_sessions if _session_stage(item) == review_stage), None)
 
     if existing_session:
         raise HTTPException(
@@ -122,12 +162,29 @@ async def create_review_session(
         for ps in body.photo_selections
     ]
 
+    selected_photo_ids = [item["photo_id"] for item in selected_photos]
+    if selected_photo_ids:
+        photos = (await db.execute(select(Photo).where(Photo.id.in_(selected_photo_ids)))).scalars().all()
+        photo_map = {photo.id: photo for photo in photos}
+        for item in selected_photos:
+            photo = photo_map.get(item["photo_id"])
+            if photo is None or photo.project_id != body.project_id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"photo_id={item['photo_id']} does not belong to this project",
+                )
+            if photo.process_state.value != review_stage:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"photo_id={item['photo_id']} is {photo.process_state.value}, not {review_stage}",
+                )
+
     session = ReviewSession(
         token=token,
         project_id=body.project_id,
         created_by=None,  # 开发环境暂时不需要认证
         expired_at=expired_at,
-        selected_photos={"photos": selected_photos},
+        selected_photos={"review_stage": review_stage, "photos": selected_photos},
     )
     db.add(session)
 
@@ -200,7 +257,15 @@ async def get_project_sessions(
             # 统计反馈（按 process_state 分类）
             stats = SessionStatistics()
             for fb in session.feedbacks:
-                if not fb.is_confirmed:
+                fb_status = getattr(fb, "feedback_status", None) or _feedback_status(fb.is_confirmed, fb.comment)
+                stats.reviewed_total += 1
+                if fb_status == "approved":
+                    stats.approved_total += 1
+                elif fb_status == "revision":
+                    stats.revision_total += 1
+                elif fb_status == "discarded":
+                    stats.discarded_total += 1
+                if fb_status != "approved":
                     continue
                 # 查询照片的 process_state
                 photo = await db.get(Photo, fb.photo_id)
@@ -222,6 +287,8 @@ async def get_project_sessions(
                     is_viewed=session.is_viewed,
                     viewed_at=session.viewed_at.isoformat() if session.viewed_at else None,
                     is_disabled=session.is_disabled,
+                    review_stage=_session_stage(session),
+                    review_stage_label=REVIEW_STAGE_LABELS[_session_stage(session)],
                     statistics=stats,
                 )
             )
@@ -264,6 +331,7 @@ async def get_project_feedbacks(
                 id=fb.id,
                 photo_id=fb.photo_id,
                 is_confirmed=fb.is_confirmed,
+                feedback_status=getattr(fb, "feedback_status", None),
                 comment=fb.comment,
                 annotation_path=fb.annotation_path,
                 created_at=fb.created_at.isoformat(),
@@ -310,6 +378,7 @@ async def get_session_feedbacks(
             id=fb.id,
             photo_id=fb.photo_id,
             is_confirmed=fb.is_confirmed,
+            feedback_status=getattr(fb, "feedback_status", None),
             comment=fb.comment,
             annotation_path=fb.annotation_path,
             created_at=fb.created_at.isoformat(),
@@ -417,6 +486,7 @@ async def get_review_session(
             if feedback:
                 feedback_data = {
                     "is_confirmed": feedback.is_confirmed,
+                    "feedback_status": getattr(feedback, "feedback_status", None) or _feedback_status(feedback.is_confirmed, feedback.comment),
                     "comment": feedback.comment,
                     "annotation_path": feedback.annotation_path,
                     "created_at": feedback.created_at.isoformat(),
@@ -439,7 +509,7 @@ async def get_review_session(
             categories_dict[key]["total_count"] += 1
 
             # 统计当前分享中客户已确认的照片；原图兼容管理端本地确认状态。
-            if (feedback and feedback.is_confirmed) or (photo.process_state == ProcessState.raw and photo.is_confirmed):
+            if (feedback and (getattr(feedback, "feedback_status", None) == "approved" or feedback.is_confirmed)) or (photo.process_state == ProcessState.raw and photo.is_confirmed):
                 categories_dict[key]["confirmed_count"] += 1
 
         # 重新组织为二级结构
@@ -473,6 +543,8 @@ async def get_review_session(
         client_name=session.project.client.name if session.project.client else None,
         expired_at=session.expired_at.isoformat(),
         is_expired=is_expired,
+        review_stage=_session_stage(session),
+        review_stage_label=REVIEW_STAGE_LABELS[_session_stage(session)],
         categories=categories,
     )
 
@@ -520,10 +592,11 @@ async def submit_feedback(
         )
 
     # 如果客户确认了精修图（process_state=retouched 或 final），自动锁定
-    if body.is_confirmed and photo.process_state in [ProcessState.retouched, ProcessState.final]:
+    if (body.feedback_status == "approved" or body.is_confirmed) and photo.process_state in [ProcessState.retouched, ProcessState.final]:
         photo.is_locked = True
 
     annotation_path = _save_annotation_image(body.annotation_image, session.id, body.photo_id)
+    fb_status = _feedback_status(body.is_confirmed, body.comment, body.feedback_status)
 
     # 最终图由管理端上传并显式关联单张精修图；客户审核只负责确认和备注。
 
@@ -535,6 +608,7 @@ async def submit_feedback(
 
     if existing:
         existing.is_confirmed = body.is_confirmed
+        existing.feedback_status = fb_status
         existing.comment = body.comment
         if annotation_path is not None:
             existing.annotation_path = annotation_path
@@ -543,6 +617,7 @@ async def submit_feedback(
             session_id=session.id,
             photo_id=body.photo_id,
             is_confirmed=body.is_confirmed,
+            feedback_status=fb_status,
             comment=body.comment,
             annotation_path=annotation_path,
         )
@@ -555,7 +630,8 @@ async def submit_feedback(
         select(ReviewFeedback).where(ReviewFeedback.session_id == session.id)
     )).scalars().all()
     for fb in feedback_rows:
-        if fb.is_confirmed or (fb.comment and fb.comment.strip()):
+        fb_status_existing = getattr(fb, "feedback_status", None) or _feedback_status(fb.is_confirmed, fb.comment)
+        if fb_status_existing in FEEDBACK_STATUSES:
             reviewed_photo_ids.add(fb.photo_id)
 
     selected_photo_ids = {

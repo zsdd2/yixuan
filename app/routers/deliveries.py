@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import AsyncSessionLocal, get_db
 from app.deps import CurrentUser
-from app.models import DeliverySession, Photo, PhotoStatus, ProcessState, Project, ProjectStatus, SystemConfig, User
+from app.models import DeliverySession, Photo, PhotoStatus, ProcessState, Project, ProjectStatus, ProjectTarget, SystemConfig, TargetStatus, User
 from app.schemas.delivery_schema import DeliverySessionCreate
 from app.services.delivery_zip_service import generate_delivery_zip
 
@@ -41,11 +41,14 @@ async def create_delivery_session(
 
     final_count = await db.scalar(
         select(Photo.id)
+        .join(ProjectTarget, Photo.target_id == ProjectTarget.id)
         .where(
             Photo.project_id == body.project_id,
             Photo.process_state == ProcessState.final,
             Photo.status != PhotoStatus.deleted,
             Photo.deleted_at.is_(None),
+            ProjectTarget.deleted_at.is_(None),
+            ProjectTarget.target_status == TargetStatus.completed,
         )
         .limit(1)
     )
@@ -184,7 +187,10 @@ async def get_delivery_page(
     photo_count_stmt = select(Photo).where(
         Photo.project_id == project.id,
         Photo.process_state == ProcessState.final,
+        Photo.target_id.isnot(None),
+        Photo.status != PhotoStatus.deleted,
         Photo.deleted_at.is_(None),
+        Photo.target.has(ProjectTarget.target_status == TargetStatus.completed),
     )
     photo_count = len((await db.execute(photo_count_stmt)).scalars().all())
 

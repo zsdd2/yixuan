@@ -18,6 +18,11 @@
         <!-- 本地上传模式 -->
           <div v-if="importMode === 'upload'" class="compact-body">
           <div class="mode-header">
+            <span class="mode-label">组合:</span>
+            <el-select v-model="activeGroupId" size="small" placeholder="未分组" clearable filterable style="width: 160px">
+              <el-option v-for="g in projectGroups" :key="g.id" :label="g.name" :value="g.id" />
+            </el-select>
+            <el-button size="small" text type="primary" @click="createGroupQuick">新建</el-button>
             <span class="mode-label">处理阶段:</span>
             <el-radio-group v-model="uploadProcessState" size="small">
               <el-radio value="raw">原图</el-radio>
@@ -60,6 +65,11 @@
         <!-- NAS 扫描模式 -->
         <div v-else class="compact-body">
           <div class="mode-header">
+            <span class="mode-label">组合:</span>
+            <el-select v-model="activeGroupId" size="small" placeholder="未分组" clearable filterable style="width: 160px">
+              <el-option v-for="g in projectGroups" :key="g.id" :label="g.name" :value="g.id" />
+            </el-select>
+            <el-button size="small" text type="primary" @click="createGroupQuick">新建</el-button>
             <span class="mode-label">处理阶段:</span>
             <el-radio-group v-model="nasProcessState" size="small">
               <el-radio value="raw">原图</el-radio>
@@ -110,6 +120,12 @@
       <!-- 筛选栏 -->
       <div class="filter-bar">
         <div class="filter-group">
+          <span class="filter-label">组合:</span>
+          <el-select v-model="filterGroupId" size="small" placeholder="全部组合" clearable style="width:150px" @change="onFilterChange">
+            <el-option v-for="g in projectGroups" :key="g.id" :label="g.name" :value="g.id" />
+          </el-select>
+        </div>
+        <div class="filter-group">
           <span class="filter-label">拍摄日期:</span>
           <el-select v-model="filterShotDates" multiple size="small" placeholder="全部日期" clearable style="min-width:200px" @change="onFilterChange">
             <el-option v-for="d in shotDateOptions" :key="d.date" :label="d.label" :value="d.date" />
@@ -140,6 +156,7 @@
           </el-image>
           <span class="card-id">#{{ String(photo.display_id).padStart(3, '0') }}</span>
           <span v-if="photo.shot_at" class="card-shot-at">{{ formatShotAt(photo.shot_at) }}</span>
+          <span v-if="photo.group_name" class="card-group">{{ photo.group_name }}</span>
           <span class="card-ps" :class="'ps-' + photo.process_state">{{ psLabel[photo.process_state] || '' }}</span>
           <span v-if="photo.target_id" class="card-target">{{ getTargetName(photo.target_id) }}</span>
           <div v-if="photo.tag_ids && photo.tag_ids.length > 0" class="card-tags">
@@ -166,6 +183,9 @@
               <el-option label="原图" value="raw" />
               <el-option label="精修" value="retouched" />
               <el-option label="完成" value="final" />
+            </el-select>
+            <el-select v-model="qsFilterGroupId" placeholder="组合" clearable size="small" style="width: 120px" @change="loadQsPhotos">
+              <el-option v-for="g in projectGroups" :key="g.id" :label="g.name" :value="g.id" />
             </el-select>
 
             <el-select v-model="qsFilterShotDate" placeholder="拍摄日期" clearable size="small" style="width: 130px" @change="loadQsPhotos">
@@ -329,11 +349,12 @@ import request from '../api/request'
 const API_BASE = ''
 
 interface PhotoItem {
-  id: number; project_id: number; target_id: number | null; display_id: number
+  id: number; project_id: number; group_id?: number | null; group_name?: string | null; target_id: number | null; display_id: number
   original_path: string; thumbnail_path: string | null; status: string
   process_state: string; shot_at: string | null; tag_ids: number[]; created_at: string
 }
 interface TagItem { id: number; project_id: number; name: string; color: string; sort_order: number }
+interface ProjectGroup { id: number; project_id: number; name: string; description?: string | null; sort_order: number; target_count: number; photo_count: number }
 interface ShotDateOption { date: string; label: string; count: number }
 interface PhotoSnapshot { id: number; target_id: number | null; process_state: string }
 interface UndoOperation { text: string; snapshots: PhotoSnapshot[]; busy: boolean }
@@ -359,7 +380,10 @@ const uploading = ref(false)
 const uploadTotal = ref(0)
 const uploadDone = ref(0)
 const uploadTagIds = ref<number[]>([])
+const projectGroups = ref<ProjectGroup[]>([])
+const activeGroupId = ref<number | null>(null)
 const uploadFormData = computed(() => ({
+  group_id: activeGroupId.value ?? '',
   process_state: uploadProcessState.value,
   tag_ids: uploadTagIds.value.join(','),
   shot_date: uploadShotDate.value || '',
@@ -395,6 +419,7 @@ const poolPageSize = 32
 // ── Filters ──
 const filterShotDates = ref<string[]>([])
 const filterTagId = ref<number | null>(null)
+const filterGroupId = ref<number | null>(null)
 const filterUnassigned = ref(false)
 const shotDateOptions = ref<ShotDateOption[]>([])
 
@@ -427,6 +452,7 @@ const qsPageSize = ref(500)
 
 // ── Quick Sort Filters ──
 const qsFilterProcessState = ref<string | null>(null)
+const qsFilterGroupId = ref<number | null>(null)
 const qsFilterShotDate = ref<string | null>(null)
 const qsFilterTagId = ref<number | null>(null)
 const qsFilterCategoryType = ref<string | null>(null)
@@ -461,7 +487,7 @@ const qsPaginatedPhotos = computed(() => {
 })
 
 const hasQsFilters = computed(() => {
-  return !!(qsFilterProcessState.value || qsFilterShotDate.value || qsFilterTagId.value || qsFilterCategoryType.value)
+  return !!(qsFilterProcessState.value || qsFilterGroupId.value || qsFilterShotDate.value || qsFilterTagId.value || qsFilterCategoryType.value)
 })
 
 // ── Helpers ──
@@ -491,6 +517,7 @@ async function fetchPhotos() {
   // 默认只显示未删除的照片
   url += '&status=pending,selected'
   if (filterTagId.value) url += `&tag_id=${filterTagId.value}`
+  if (filterGroupId.value) url += `&group_id=${filterGroupId.value}`
   if (filterUnassigned.value) url += `&unassigned=true`
   if (filterShotDates.value.length > 0) url += `&shot_dates=${filterShotDates.value.join(',')}`
   try {
@@ -560,6 +587,7 @@ async function startNasScan() {
   try {
     const data = await request.post('/api/v1/photos/scan-nas', {
       project_id: Number(projectId.value),
+      group_id: activeGroupId.value,
       nas_path: nasSelectedPath.value.replace(/^\//, ''),
       process_state: nasProcessState.value,
       tag_ids: nasTagIds.value,
@@ -620,6 +648,7 @@ async function loadQsPhotos() {
 
     // 添加筛选参数
     if (qsFilterProcessState.value) params.append('process_state', qsFilterProcessState.value)
+    if (qsFilterGroupId.value) params.append('group_id', qsFilterGroupId.value.toString())
     if (qsFilterShotDate.value) params.append('shot_dates', qsFilterShotDate.value)
     if (qsFilterTagId.value) params.append('tag_id', qsFilterTagId.value.toString())
 
@@ -645,8 +674,30 @@ async function loadQsShotDates() {
   }
 }
 
+async function fetchGroups() {
+  try {
+    const data = await request.get(`/api/v1/projects/${projectId.value}/groups`)
+    projectGroups.value = data.items || []
+  } catch {}
+}
+
+async function createGroupQuick() {
+  try {
+    const { value } = await ElMessageBox.prompt('请输入组合/批次/商品组名称', '新建组合', {
+      confirmButtonText: '创建',
+      cancelButtonText: '取消',
+      inputValidator: (v: string) => !!v.trim() || '名称不能为空',
+    })
+    const group = await request.post(`/api/v1/projects/${projectId.value}/groups`, { name: value.trim(), sort_order: projectGroups.value.length })
+    projectGroups.value.push(group)
+    activeGroupId.value = group.id
+    ElMessage.success('组合已创建')
+  } catch {}
+}
+
 function resetQsFilters() {
   qsFilterProcessState.value = null
+  qsFilterGroupId.value = null
   qsFilterShotDate.value = null
   qsFilterTagId.value = null
   qsFilterCategoryType.value = null
@@ -734,15 +785,19 @@ async function qsAssign(targetId: number) {
   let snapshots: PhotoSnapshot[] = []
   const ids = Array.from(qsSelected); if (ids.length === 0) { ElMessage.warning('请先在左侧选择照片'); return }
   snapshots = qsSnapshotPhotos(ids)
+  const targetGroupId = targets.value.find(t => t.id === targetId)?.group_id ?? activeGroupId.value ?? null
   try {
     await request.patch('/api/v1/photos/bulk-update', {
       photo_ids: ids,
       target_id: targetId,
+      group_id: targetGroupId ?? undefined,
       process_state: qsAssignProcessState.value,
     })
     for (const p of qsAllPhotos.value) {
       if (qsSelected.has(p.id)) {
         p.target_id = targetId
+        p.group_id = targetGroupId
+        p.group_name = projectGroups.value.find(g => g.id === targetGroupId)?.name ?? p.group_name
         p.process_state = qsAssignProcessState.value
       }
     }
@@ -888,7 +943,7 @@ async function deleteTag(tagId: number) {
 }
 
 // ── Init ──
-onMounted(() => { Promise.all([fetchPhotos(), fetchTargets(), fetchTags(), fetchShotDates()]) })
+onMounted(() => { Promise.all([fetchPhotos(), fetchTargets(), fetchGroups(), fetchTags(), fetchShotDates()]) })
 onUnmounted(() => { stopScanPolling() })
 </script>
 
@@ -940,6 +995,7 @@ onUnmounted(() => { stopScanPolling() })
 .card-img-error { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: #f5f7fa; color: #c0c4cc; }
 .card-id { position: absolute; bottom: 3px; left: 3px; font-size: 10px; font-weight: 700; color: white; background: rgba(0,0,0,0.55); padding: 1px 4px; border-radius: 3px; }
 .card-shot-at { position: absolute; top: 4px; right: 4px; font-size: 9px; color: white; background: rgba(0,0,0,0.5); padding: 1px 3px; border-radius: 3px; }
+.card-group { position: absolute; top: 22px; left: 4px; font-size: 9px; color: #fff; background: rgba(103, 58, 183, 0.78); padding: 1px 4px; border-radius: 3px; max-width: 72%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .card-ps { position: absolute; bottom: 3px; right: 3px; font-size: 9px; font-weight: 600; padding: 1px 4px; border-radius: 3px; }
 .ps-raw { background: rgba(192,196,204,0.85); color: white; }
 .ps-retouched { background: rgba(230,162,60,0.85); color: white; }

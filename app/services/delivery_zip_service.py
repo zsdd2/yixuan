@@ -12,7 +12,7 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Project, Photo, ProjectTarget, SystemConfig, ProcessState, CategoryType
+from app.models import Project, Photo, PhotoStatus, ProjectTarget, SystemConfig, ProcessState, CategoryType, TargetStatus
 
 
 # 环境变量
@@ -44,11 +44,14 @@ async def generate_delivery_zip(project_id: int, db: AsyncSession) -> dict:
         # 3. 查询所有 final 照片
         photos_stmt = (
             select(Photo, ProjectTarget)
-            .outerjoin(ProjectTarget, Photo.target_id == ProjectTarget.id)
+            .join(ProjectTarget, Photo.target_id == ProjectTarget.id)
             .where(
                 Photo.project_id == project_id,
                 Photo.process_state == ProcessState.final,
-                Photo.deleted_at.is_(None)
+                Photo.status != PhotoStatus.deleted,
+                Photo.deleted_at.is_(None),
+                ProjectTarget.deleted_at.is_(None),
+                ProjectTarget.target_status == TargetStatus.completed,
             )
             .order_by(ProjectTarget.category_type, ProjectTarget.name, Photo.display_id)
         )

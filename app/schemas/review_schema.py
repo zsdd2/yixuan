@@ -16,6 +16,7 @@ class PhotoSelection(BaseModel):
 class CreateReviewRequest(BaseModel):
     project_id: int
     photo_selections: list[PhotoSelection]
+    review_stage: str = Field(default="raw", description="Review stage: raw/retouched/final")
     expired_days: int = Field(default=7, ge=1, le=30, description="过期天数（1-30天）")
 
 
@@ -62,6 +63,8 @@ class ReviewSessionData(BaseModel):
     client_name: str | None
     expired_at: str
     is_expired: bool
+    review_stage: str = "raw"
+    review_stage_label: str = "原图审核"
     categories: list[ReviewCategoryGroup]
 
 
@@ -70,6 +73,7 @@ class ReviewSessionData(BaseModel):
 class SubmitFeedbackRequest(BaseModel):
     photo_id: int
     is_confirmed: bool
+    feedback_status: str | None = Field(default=None, description="approved/revision/discarded")
     comment: str | None = None
     annotation_image: str | None = None
     mark_as_final: bool = False  # 是否标记为最终成图（仅精修图可用）
@@ -83,6 +87,7 @@ class FeedbackItem(BaseModel):
     id: int
     photo_id: int
     is_confirmed: bool
+    feedback_status: str | None = None
     comment: str | None
     annotation_path: str | None = None
     created_at: str
@@ -102,6 +107,10 @@ class SessionStatistics(BaseModel):
     raw_confirmed: int = 0
     retouched_confirmed: int = 0
     final_confirmed: int = 0
+    reviewed_total: int = 0
+    approved_total: int = 0
+    revision_total: int = 0
+    discarded_total: int = 0
 
 
 class ReviewSessionItem(BaseModel):
@@ -115,6 +124,8 @@ class ReviewSessionItem(BaseModel):
     is_viewed: bool
     viewed_at: str | None
     is_disabled: bool
+    review_stage: str = "raw"
+    review_stage_label: str = "原图审核"
     statistics: SessionStatistics
 
 

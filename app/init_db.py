@@ -17,17 +17,18 @@ from sqlalchemy.exc import IntegrityError
 
 from app.database import engine, AsyncSessionLocal
 from app import models  # 用于访问 models.User, models.UserRole 等
-from app.auth import get_password_hash
 
+
+from app.auth import get_password_hash
 
 async def seed_admin_user() -> None:
     print("[init] seeding admin user...")
-    admin_username = os.getenv("ADMIN_USERNAME", "admin")
+    admin_username = os.getenv("ADMIN_USERNAME", "admin").strip() or "admin"
     admin_password = os.getenv("ADMIN_PASSWORD", "adminadmin")
     admin_display_name = os.getenv("ADMIN_DISPLAY_NAME", "超级管理员")
-
+    reset_password = os.getenv("ADMIN_RESET_PASSWORD_ON_START", "false").lower() in ("1", "true", "yes", "on")
     async with AsyncSessionLocal() as session:
-        # 幂等修复：旧版本可能创建了 Admin 且没有 password_hash，这里统一修正。
+        # 幂等检查：已存在则跳过
         result = await session.execute(
             select(models.User).where(models.User.id == 1)
         )
@@ -40,7 +41,7 @@ async def seed_admin_user() -> None:
             if existing.display_name != admin_display_name:
                 existing.display_name = admin_display_name
                 changed = True
-            if not existing.password_hash:
+            if reset_password or not existing.password_hash:
                 existing.password_hash = get_password_hash(admin_password)
                 changed = True
             if existing.role != models.UserRole.super_admin:
@@ -53,7 +54,7 @@ async def seed_admin_user() -> None:
                 await session.commit()
                 print(f"   admin user id=1 repaired as {admin_username}.")
             else:
-                print(f"   admin user id=1 ({existing.username}) exists, skip.")
+                print(f"   user id=1 ({existing.username}) exists, skip.")
             return
 
         admin = models.User(

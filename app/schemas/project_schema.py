@@ -53,6 +53,7 @@ class ProjectInList(BaseModel):
     deleted_at: str | None = None
     description: str | None = None
     project_status: str = "not_started"
+    is_manual: bool = False
     created_at: str
 
     model_config = {"from_attributes": True}
@@ -63,6 +64,36 @@ class ProjectListResponse(BaseModel):
     items: list[ProjectInList] = Field(..., description="当前页项目列表")
     skip: int
     limit: int
+
+
+class ProjectGroupCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=128, description="组合/批次/商品组名称")
+    description: str | None = Field(None, description="组合说明")
+    sort_order: int = Field(0, description="排序")
+
+
+class ProjectGroupUpdate(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=128)
+    description: str | None = None
+    sort_order: int | None = None
+
+
+class ProjectGroupResponse(BaseModel):
+    id: int
+    project_id: int
+    name: str
+    description: str | None = None
+    sort_order: int = 0
+    target_count: int = 0
+    photo_count: int = 0
+    created_at: str
+
+    model_config = {"from_attributes": True}
+
+
+class ProjectGroupListResponse(BaseModel):
+    items: list[ProjectGroupResponse]
+    total: int
 
 
 class ArchiveResponse(BaseModel):
@@ -90,5 +121,6 @@ class ProjectDetailResponse(BaseModel):
     photo_count: int = 0
     target_count: int = 0
     project_status: str = "not_started"
+    is_manual: bool = False
 
     model_config = {"from_attributes": True}

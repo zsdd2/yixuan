@@ -430,6 +430,7 @@ async function quickConfirm(photo: any) {
     const result = await request.post(`/api/v1/reviews/${token}/feedback`, {
       photo_id: photo.id,
       is_confirmed: !photo.feedback?.is_confirmed,
+      feedback_status: !photo.feedback?.is_confirmed ? 'approved' : 'revision',
       comment: photo.feedback?.comment || null,
       mark_as_final: false,
     })
@@ -460,6 +461,7 @@ async function discardPhoto(photo: any) {
     const result = await request.post(`/api/v1/reviews/${token}/feedback`, {
       photo_id: photo.id,
       is_confirmed: false,
+      feedback_status: 'discarded',
       comment: '弃用',
       mark_as_final: false,
     })
@@ -484,6 +486,7 @@ async function submitComment() {
     const result = await request.post(`/api/v1/reviews/${token}/feedback`, {
       photo_id: currentPhoto.value.id,
       is_confirmed: currentPhoto.value.feedback?.is_confirmed || false,
+      feedback_status: 'revision',
       comment: commentText.value,
       mark_as_final: false,
     })
@@ -538,6 +541,7 @@ async function toggleConfirm() {
     const result = await request.post(`/api/v1/reviews/${token}/feedback`, {
       photo_id: currentPhotoData.value.id,
       is_confirmed: newConfirmedState,
+      feedback_status: newConfirmedState ? 'approved' : 'revision',
       comment: lightboxComment.value || null,
       annotation_image: null,
       mark_as_final: newConfirmedState && markAsFinal.value,
@@ -576,6 +580,7 @@ async function submitRevisionFromLightbox() {
     const result = await request.post(`/api/v1/reviews/${token}/feedback`, {
       photo_id: currentPhotoData.value.id,
       is_confirmed: false,
+      feedback_status: 'revision',
       comment: lightboxComment.value,
       annotation_image: buildAnnotationImage(),
       mark_as_final: false,

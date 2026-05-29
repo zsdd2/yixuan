@@ -3,7 +3,8 @@ from pydantic import BaseModel, Field
 
 class TargetCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=128, description="目标名称")
-    category_type: str = Field("white", description="分类：white 或 scene")
+    group_id: int | None = Field(None, description="组合/批次/商品组 ID")
+    category_type: str = Field("white", description="分类: white 或 scene")
     sample_path: str | None = Field(None, description="样图路径")
     requirement_desc: str | None = Field(None, description="文本要求")
     sort_order: int = Field(0, description="排序权重")
@@ -11,6 +12,7 @@ class TargetCreate(BaseModel):
 
 class TargetUpdate(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=128)
+    group_id: int | None = None
     category_type: str | None = None
     target_status: str | None = None
     sample_path: str | None = None
@@ -21,6 +23,8 @@ class TargetUpdate(BaseModel):
 class TargetResponse(BaseModel):
     id: int
     project_id: int
+    group_id: int | None = None
+    group_name: str | None = None
     name: str
     category_type: str = "white"
     target_status: str = "not_started"

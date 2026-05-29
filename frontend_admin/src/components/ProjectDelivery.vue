@@ -336,20 +336,20 @@ function downloadOriginal(photo: DeliveryPhoto | null) {
 async function fetchDeliveryPhotos() {
   try {
     const [photosData, targetsData, projectData] = await Promise.all([
-      request.get(`/api/v1/projects/${props.projectId}/photos`, { skip: '0', limit: '500', process_state: 'final' }),
+      request.get(`/api/v1/projects/${props.projectId}/photos`, { skip: '0', limit: '500', process_state: 'final', assigned_only: 'true' }),
       request.get(`/api/v1/projects/${props.projectId}/targets`),
       request.get(`/api/v1/projects/${props.projectId}`),
     ])
 
     projectName.value = projectData.name || ''
 
-    const targetMap = new Map<number, { name: string; category_type: string }>()
+    const targetMap = new Map<number, { name: string; category_type: string; completed: boolean }>()
     for (const t of targetsData.items) {
-      targetMap.set(t.id, { name: t.name, category_type: t.category_type })
+      targetMap.set(t.id, { name: t.name, category_type: t.category_type, completed: t.target_status === 'completed' })
     }
 
     photos.value = photosData.items
-      .filter((p: any) => p.status !== 'deleted')
+      .filter((p: any) => p.status !== 'deleted' && targetMap.get(p.target_id)?.completed)
       .map((p: any) => {
         const target = targetMap.get(p.target_id) || { name: '未分配', category_type: 'white' }
         return {

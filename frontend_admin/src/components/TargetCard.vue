@@ -127,6 +127,8 @@ const API_BASE = ''
 export interface TargetItem {
   id: number
   project_id: number
+  group_id?: number | null
+  group_name?: string | null
   name: string
   category_type: 'white' | 'scene'
   target_status: string

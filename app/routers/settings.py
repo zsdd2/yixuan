@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy import select, func as sa_func, delete as sa_delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import get_password_hash
 from app.database import get_db
 from app.deps import AdminUser, CurrentUser
 from app.models import (
@@ -579,7 +580,7 @@ async def create_user(
     user = User(
         username=body.username,
         display_name=body.display_name,
-        password_hash=body.password,
+        password_hash=get_password_hash(body.password),
         role=UserRole(body.role),
     )
     db.add(user)
@@ -606,7 +607,7 @@ async def update_user(
     if body.display_name is not None:
         user.display_name = body.display_name
     if body.password is not None:
-        user.password_hash = body.password
+        user.password_hash = get_password_hash(body.password)
     if body.role is not None:
         user.role = UserRole(body.role)
     if body.is_active is not None:
