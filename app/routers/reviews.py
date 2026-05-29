@@ -79,7 +79,10 @@ def _feedback_status(is_confirmed: bool, comment: str | None, requested: str | N
 
 
 def _session_stage(session: ReviewSession) -> str:
-    return _normalize_review_stage((session.selected_photos or {}).get("review_stage"))
+    return _normalize_review_stage(
+        getattr(session, "review_stage", None)
+        or (session.selected_photos or {}).get("review_stage")
+    )
 
 
 def _save_annotation_image(data_url: str | None, session_id: int, photo_id: int) -> str | None:
@@ -136,12 +139,13 @@ async def create_review_session(
         select(ReviewSession)
         .where(
             ReviewSession.project_id == body.project_id,
+            ReviewSession.review_stage == review_stage,
             ReviewSession.expired_at > now,
             ReviewSession.is_disabled == False,
         )
     )
     existing_sessions = (await db.execute(existing_stmt)).scalars().all()
-    existing_session = next((item for item in existing_sessions if _session_stage(item) == review_stage), None)
+    existing_session = existing_sessions[0] if existing_sessions else None
 
     if existing_session:
         raise HTTPException(
@@ -184,6 +188,7 @@ async def create_review_session(
         project_id=body.project_id,
         created_by=None,  # 开发环境暂时不需要认证
         expired_at=expired_at,
+        review_stage=review_stage,
         selected_photos={"review_stage": review_stage, "photos": selected_photos},
     )
     db.add(session)

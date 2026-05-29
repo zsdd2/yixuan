@@ -94,7 +94,26 @@
 
     <!-- 管理视图 -->
     <div v-else class="management-view">
-      <el-table :data="sessions" v-loading="loadingSessions" style="width: 100%">
+      <div class="management-stage-filter">
+        <el-radio-group v-model="managementStage" size="small">
+          <el-radio-button
+            v-for="stage in stageOptions"
+            :key="stage.type"
+            :label="stage.type"
+          >
+            {{ stage.label }} {{ sessionsByStage[stage.type].length }}
+          </el-radio-button>
+        </el-radio-group>
+        <span v-if="activeSessionByStage[managementStage]" class="stage-active-note">
+          当前类型已有有效分享：{{ activeSessionByStage[managementStage].token.slice(0, 8) }}...
+        </span>
+      </div>
+      <el-table :data="filteredSessions" v-loading="loadingSessions" style="width: 100%">
+        <el-table-column label="类型" width="100">
+          <template #default="{ row }">
+            <el-tag size="small">{{ row.review_stage_label || currentStageLabel }}</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="创建人" prop="created_by_name" width="100" />
         <el-table-column label="创建时间" width="160">
           <template #default="{ row }">
@@ -216,12 +235,51 @@ const expiredDays = ref(7)
 const viewMode = ref<'create' | 'management'>('create')
 const sessions = ref<any[]>([])
 const loadingSessions = ref(false)
+const managementStage = ref<'raw' | 'retouched' | 'final'>('raw')
+
+const stageOptions = [
+  { type: 'raw' as const, label: '原图审核' },
+  { type: 'retouched' as const, label: '精修审核' },
+  { type: 'final' as const, label: '最终图审核' },
+]
 
 const stageLabel = computed(() => ({
   raw: '原图审核',
   retouched: '精修审核',
   final: '最终图审核',
 }[reviewStage.value]))
+
+const sessionsByStage = computed<Record<'raw' | 'retouched' | 'final', any[]>>(() => {
+  const grouped: Record<'raw' | 'retouched' | 'final', any[]> = {
+    raw: [],
+    retouched: [],
+    final: [],
+  }
+  sessions.value.forEach((session) => {
+    const stage = session.review_stage || 'raw'
+    if (stage === 'retouched' || stage === 'final' || stage === 'raw') {
+      grouped[stage].push(session)
+    } else {
+      grouped.raw.push(session)
+    }
+  })
+  return grouped
+})
+
+const filteredSessions = computed(() => sessionsByStage.value[managementStage.value])
+
+const activeSessionByStage = computed<Record<'raw' | 'retouched' | 'final', any | null>>(() => {
+  const now = Date.now()
+  return {
+    raw: sessionsByStage.value.raw.find((item) => !item.is_disabled && new Date(item.expired_at).getTime() > now) || null,
+    retouched: sessionsByStage.value.retouched.find((item) => !item.is_disabled && new Date(item.expired_at).getTime() > now) || null,
+    final: sessionsByStage.value.final.find((item) => !item.is_disabled && new Date(item.expired_at).getTime() > now) || null,
+  }
+})
+
+const currentStageLabel = computed(() => (
+  stageOptions.find((item) => item.type === managementStage.value)?.label || '原图审核'
+))
 
 watch(() => props.visible, async (val) => {
   if (val) {
@@ -274,7 +332,6 @@ async function loadTargets() {
 
 function selectTarget(target: any, categoryType: string) {
   selectedTarget.value = { ...target, category_type: categoryType }
-  selectedPhotos.value = []
 }
 
 async function loadPhotos() {
@@ -419,6 +476,7 @@ function onClose() {
 
 async function switchToManagement() {
   viewMode.value = 'management'
+  managementStage.value = reviewStage.value
   await loadSessions()
 }
 
@@ -710,5 +768,22 @@ function formatDateTime(dateStr: string) {
 .management-view {
   height: 600px;
   overflow-y: auto;
+}
+
+.management-stage-filter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.stage-active-note {
+  font-size: 12px;
+  color: #b45309;
 }
 </style>

@@ -492,6 +492,7 @@ class ReviewSession(Base):
         BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     expired_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    review_stage: Mapped[str] = mapped_column(String(32), nullable=False, server_default="raw", index=True)
     selected_photos: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     is_viewed: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     viewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
