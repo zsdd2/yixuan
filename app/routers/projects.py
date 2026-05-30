@@ -188,6 +188,7 @@ async def list_projects(
     scene_target_counts: dict[int, int] = {}
     white_completed_counts: dict[int, int] = {}
     scene_completed_counts: dict[int, int] = {}
+    computed_project_status: dict[int, ProjectStatus] = {}
 
     if project_ids:
         pc_stmt = (
@@ -232,29 +233,61 @@ async def list_projects(
         )
         scene_target_counts = dict((await db.execute(st_stmt)).all())
 
-        wc_stmt = (
-            select(ProjectTarget.project_id, sa_func.count(ProjectTarget.id))
+        final_target_ids = set((await db.execute(
+            select(Photo.target_id)
             .where(
-                ProjectTarget.project_id.in_(project_ids),
-                ProjectTarget.category_type == CategoryType.white,
-                ProjectTarget.target_status == TargetStatus.completed,
-                ProjectTarget.deleted_at.is_(None)
+                Photo.project_id.in_(project_ids),
+                Photo.target_id.isnot(None),
+                Photo.deleted_at.is_(None),
+                Photo.status != PhotoStatus.deleted,
+                Photo.process_state == ProcessState.final,
             )
-            .group_by(ProjectTarget.project_id)
-        )
-        white_completed_counts = dict((await db.execute(wc_stmt)).all())
+            .group_by(Photo.target_id)
+        )).scalars().all())
 
-        sc_stmt = (
-            select(ProjectTarget.project_id, sa_func.count(ProjectTarget.id))
+        target_rows_for_progress = (await db.execute(
+            select(
+                ProjectTarget.project_id,
+                ProjectTarget.id,
+                ProjectTarget.category_type,
+                ProjectTarget.target_status,
+            )
             .where(
                 ProjectTarget.project_id.in_(project_ids),
-                ProjectTarget.category_type == CategoryType.scene,
-                ProjectTarget.target_status == TargetStatus.completed,
                 ProjectTarget.deleted_at.is_(None)
             )
-            .group_by(ProjectTarget.project_id)
-        )
-        scene_completed_counts = dict((await db.execute(sc_stmt)).all())
+        )).all()
+        for pid, tid, category, target_status in target_rows_for_progress:
+            completed = target_status == TargetStatus.completed or tid in final_target_ids
+            if not completed:
+                continue
+            if category == CategoryType.scene:
+                scene_completed_counts[pid] = scene_completed_counts.get(pid, 0) + 1
+            else:
+                white_completed_counts[pid] = white_completed_counts.get(pid, 0) + 1
+
+        retouching_project_ids = set((await db.execute(
+            select(Photo.project_id)
+            .where(
+                Photo.project_id.in_(project_ids),
+                Photo.deleted_at.is_(None),
+                Photo.status != PhotoStatus.deleted,
+                Photo.process_state.in_([ProcessState.retouched, ProcessState.final]),
+            )
+            .group_by(Photo.project_id)
+        )).scalars().all())
+
+        for pid in project_ids:
+            target_total = target_counts.get(pid, 0)
+            completed_total = white_completed_counts.get(pid, 0) + scene_completed_counts.get(pid, 0)
+            if target_total > 0 and completed_total >= target_total:
+                computed_project_status[pid] = ProjectStatus.completed
+            elif pid in retouching_project_ids:
+                computed_project_status[pid] = ProjectStatus.retouching
+            elif photo_counts.get(pid, 0) > 0:
+                computed_project_status[pid] = ProjectStatus.shooting
+            else:
+                computed_project_status[pid] = ProjectStatus.not_started
 
     client_ids = list({p.client_id for p in projects})
     client_names: dict[int, str] = {}
@@ -268,18 +301,15 @@ async def list_projects(
         tpl_stmt = select(ProjectTemplate.id, ProjectTemplate.name).where(ProjectTemplate.id.in_(template_ids))
         template_names = dict((await db.execute(tpl_stmt)).all())
 
-    completed_target_counts: dict[int, int] = {}
-    if project_ids:
-        ctc_stmt = (
-            select(ProjectTarget.project_id, sa_func.count(ProjectTarget.id))
-            .where(
-                ProjectTarget.project_id.in_(project_ids),
-                ProjectTarget.target_status == TargetStatus.completed,
-                ProjectTarget.deleted_at.is_(None)
-            )
-            .group_by(ProjectTarget.project_id)
-        )
-        completed_target_counts = dict((await db.execute(ctc_stmt)).all())
+    completed_target_counts: dict[int, int] = {
+        pid: white_completed_counts.get(pid, 0) + scene_completed_counts.get(pid, 0)
+        for pid in project_ids
+    }
+
+    def response_status(project: Project) -> str:
+        if project.is_manual:
+            return project.project_status.value if project.project_status else "not_started"
+        return computed_project_status.get(project.id, project.project_status or ProjectStatus.not_started).value
 
     items_all = [
         ProjectInList(
@@ -304,7 +334,8 @@ async def list_projects(
             archived_at=p.archived_at.isoformat() if p.archived_at else None,
             deleted_at=p.deleted_at.isoformat() if p.deleted_at else None,
             description=p.description,
-            project_status=p.project_status.value if p.project_status else "not_started",
+            project_status=response_status(p),
+            is_manual=p.is_manual,
             created_at=p.created_at.isoformat(),
         )
         for p in projects
@@ -1365,6 +1396,8 @@ async def upload_photo_to_project(
     group_id: int | None = Form(None, description="组合/批次/商品组 ID"),
     target_id: int | None = Form(None, description="目标槽位 ID（可为空）"),
     process_state: str = Form("raw", description="入库阶段: raw/retouched/final"),
+    tag_ids: str = Form("", description="逗号分隔的标签ID列表，如 1,2,3"),
+    shot_date: str | None = Form(None, description="手动指定拍摄日期 YYYY-MM-DD"),
     db: AsyncSession = Depends(get_db),
 ) -> PhotoResponse:
     project = await db.get(Project, project_id)
@@ -1430,12 +1463,30 @@ async def upload_photo_to_project(
             detail=f"图片处理失败：{exc}",
         )
 
+    if shot_date:
+        try:
+            shot_at = datetime.strptime(shot_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        except ValueError:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="拍摄日期格式应为 YYYY-MM-DD")
+
+    parsed_tag_ids = [int(x) for x in tag_ids.split(",") if x.strip().isdigit()] if tag_ids else []
+    if parsed_tag_ids:
+        valid_count = (await db.execute(
+            select(sa_func.count(ProjectTag.id)).where(
+                ProjectTag.project_id == project_id,
+                ProjectTag.id.in_(parsed_tag_ids),
+            )
+        )).scalar() or 0
+        if valid_count != len(set(parsed_tag_ids)):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="存在不属于该项目的标签")
+
     display_id = await _next_display_id(db, project_id)
     photo = Photo(
         project_id=project_id,
         group_id=group_id,
         target_id=target_id,
         original_path=str(original_path),
+        original_filename=original_filename,
         thumbnail_path=str(thumb_path),
         file_hash=file_hash,
         display_id=display_id,
@@ -1444,6 +1495,11 @@ async def upload_photo_to_project(
     )
     db.add(photo)
     await db.flush()
+    for tid in dict.fromkeys(parsed_tag_ids):
+        await db.execute(photo_tags.insert().values(photo_id=photo.id, tag_id=tid))
+    if target_id is not None:
+        await compute_target_status(db, target_id)
+    await compute_project_status(db, project_id)
     await db.refresh(photo)
     await db.commit()
 

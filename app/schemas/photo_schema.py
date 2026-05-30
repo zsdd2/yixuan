@@ -61,6 +61,11 @@ class PhotoResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class FolderTagRule(BaseModel):
+    path: str = Field(".", description="相对扫描根目录的文件夹路径，'.' 表示扫描根目录全部文件")
+    tag_names: list[str] = Field(default_factory=list, description="该文件夹下文件自动挂载的标签名称")
+
+
 class ScanNasRequest(BaseModel):
     project_id: int
     group_id: int | None = None
@@ -69,6 +74,7 @@ class ScanNasRequest(BaseModel):
     generate_thumbnails: bool = True
     process_state: str = "raw"
     tag_ids: list[int] = Field(default_factory=list)
+    folder_tag_rules: list[FolderTagRule] = Field(default_factory=list)
     shot_date: str | None = None
 
 

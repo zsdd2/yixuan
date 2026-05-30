@@ -101,8 +101,26 @@
     <!-- 项目选图器弹窗 -->
     <el-dialog v-model="showPhotoPicker" title="从项目选图" width="700px" destroy-on-close>
       <div class="picker-toolbar">
-        <el-input v-model="pickerSearch" placeholder="搜索编号..." :prefix-icon="Search" size="small" clearable style="width: 120px" />
-        <span class="picker-hint">仅显示本项目未分配的原图</span>
+        <el-input v-model="pickerSearch" placeholder="编号/文件名" :prefix-icon="Search" size="small" clearable style="width: 130px" />
+        <el-select v-model="pickerScope" size="small" style="width: 150px">
+          <el-option label="当前+未分拣" value="target_unassigned" />
+          <el-option label="当前子项目" value="target" />
+          <el-option label="未分拣" value="unassigned" />
+          <el-option label="全部项目图片" value="all" />
+        </el-select>
+        <el-select v-model="pickerProcessState" size="small" clearable placeholder="处理状态" style="width: 105px">
+          <el-option label="原图" value="raw" />
+          <el-option label="精修图" value="retouched" />
+          <el-option label="完成图" value="final" />
+        </el-select>
+        <el-select v-model="pickerStatus" size="small" clearable placeholder="图片状态" style="width: 105px">
+          <el-option label="待处理" value="pending" />
+          <el-option label="已选中" value="selected" />
+        </el-select>
+        <el-select v-model="pickerTagId" size="small" clearable placeholder="标签" style="width: 110px">
+          <el-option v-for="tag in projectTags" :key="tag.id" :label="tag.name" :value="tag.id" />
+        </el-select>
+        <span class="picker-hint">当前子项目照片优先显示，也可切换选择未分拣或其他图片</span>
       </div>
       <div class="picker-grid">
         <div
@@ -115,6 +133,9 @@
             <template #error><div class="thumb-error"><el-icon><PictureFilled /></el-icon></div></template>
           </el-image>
           <span class="display-id-badge">#{{ String(photo.display_id).padStart(3, '0') }}</span>
+          <span class="process-badge" :class="'ps-' + photo.process_state">{{ processLabel[photo.process_state] }}</span>
+          <span v-if="photo.target_id === props.targetId" class="scope-badge">当前</span>
+          <span v-else-if="!photo.target_id" class="scope-badge muted">未分拣</span>
           <div v-if="pickerSelected.has(photo.id)" class="check-mark"><el-icon><Select /></el-icon></div>
         </div>
       </div>
@@ -129,6 +150,15 @@
 
     <el-dialog v-model="showReferencePicker" title="选择场景参考图" width="720px" destroy-on-close>
       <div class="picker-toolbar">
+        <el-input v-model="referenceSearch" placeholder="编号/文件名" :prefix-icon="Search" size="small" clearable style="width: 130px" />
+        <el-select v-model="referenceProcessState" size="small" clearable placeholder="处理状态" style="width: 110px">
+          <el-option label="原图" value="raw" />
+          <el-option label="精修图" value="retouched" />
+          <el-option label="完成图" value="final" />
+        </el-select>
+        <el-select v-model="referenceTagId" size="small" clearable placeholder="标签" style="width: 120px">
+          <el-option v-for="tag in projectTags" :key="tag.id" :label="tag.name" :value="tag.id" />
+        </el-select>
         <span class="picker-hint">选择项目图片作为{{ referencePickerType === 'scene_goal' ? '场景目标图' : '场景空场景' }}</span>
       </div>
       <div class="picker-grid">
@@ -142,6 +172,7 @@
             <template #error><div class="thumb-error"><el-icon><PictureFilled /></el-icon></div></template>
           </el-image>
           <span class="display-id-badge">#{{ String(photo.display_id).padStart(3, '0') }}</span>
+          <span class="process-badge" :class="'ps-' + photo.process_state">{{ processLabel[photo.process_state] }}</span>
         </div>
       </div>
     </el-dialog>
@@ -295,6 +326,7 @@ export interface PhotoItem {
   retouch_batch_id: string | null
   client_notes: string | null
   revision_notes: string | null
+  tag_ids?: number[]
   created_at: string
 }
 
@@ -330,11 +362,17 @@ const statusLabel: Record<string, string> = {
   client_review: '客户确认中',
   completed: '已完成',
 }
+const processLabel: Record<string, string> = {
+  raw: '原图',
+  retouched: '精修',
+  final: '完成',
+}
 
 // ── 核心数据 ────────────────────────────────────────────
 const targetInfo = ref<TargetInfo | null>(null)
 const allProjectPhotos = ref<PhotoItem[]>([])
 const targetReferences = ref<TargetReferenceItem[]>([])
+const projectTags = ref<{ id: number; name: string; color: string; scope?: string }[]>([])
 const photoTotal = ref(0)
 const photoSkip = ref(0)
 const photoLimit = 50
@@ -349,16 +387,19 @@ const targetPhotos = computed(() =>
   allProjectPhotos.value.filter(p => p.target_id === props.targetId && p.status !== 'deleted')
 )
 
-const referencePickerPhotos = computed(() =>
-  allProjectPhotos.value.filter(p => p.status !== 'deleted')
-)
-
 // ── 项目选图器 ──────────────────────────────────────────
 const showPhotoPicker = ref(false)
 const pickerSearch = ref('')
+const pickerScope = ref<'target_unassigned' | 'target' | 'unassigned' | 'all'>('target_unassigned')
+const pickerProcessState = ref<string | null>('raw')
+const pickerStatus = ref<string | null>(null)
+const pickerTagId = ref<number | null>(null)
 const pickerSelected = reactive(new Set<number>())
 const showReferencePicker = ref(false)
 const referencePickerType = ref<'scene_goal' | 'empty_scene'>('scene_goal')
+const referenceSearch = ref('')
+const referenceProcessState = ref<string | null>(null)
+const referenceTagId = ref<number | null>(null)
 const previewVisible = ref(false)
 const previewPhotos = ref<PhotoItem[]>([])
 const previewIndex = ref(0)
@@ -366,15 +407,55 @@ const previewPhotoItem = computed(() => previewPhotos.value[previewIndex.value])
 const previewUrl = computed(() => previewPhotoItem.value ? thumbUrl(previewPhotoItem.value) : '')
 
 const pickerPhotos = computed(() => {
-  let list = allProjectPhotos.value.filter(
-    p => p.process_state === 'raw' && p.status !== 'deleted' && p.target_id !== props.targetId
-  )
-  if (pickerSearch.value) {
-    const num = parseInt(pickerSearch.value, 10)
-    if (!isNaN(num)) list = list.filter(p => p.display_id === num)
+  let list = allProjectPhotos.value.filter(p => p.status !== 'deleted')
+  if (pickerScope.value === 'target') {
+    list = list.filter(p => p.target_id === props.targetId)
+  } else if (pickerScope.value === 'unassigned') {
+    list = list.filter(p => p.target_id == null)
+  } else if (pickerScope.value === 'target_unassigned') {
+    list = list.filter(p => p.target_id === props.targetId || p.target_id == null)
+  }
+  list = filterProjectPhotos(list, pickerSearch.value, pickerProcessState.value, pickerStatus.value, pickerTagId.value)
+  return list.sort((a, b) => pickerPriority(a) - pickerPriority(b) || b.display_id - a.display_id)
+})
+
+const referencePickerPhotos = computed(() =>
+  filterProjectPhotos(
+    allProjectPhotos.value.filter(p => p.status !== 'deleted'),
+    referenceSearch.value,
+    referenceProcessState.value,
+    null,
+    referenceTagId.value,
+  ),
+)
+
+function filterProjectPhotos(
+  source: PhotoItem[],
+  keyword: string,
+  processState: string | null,
+  status: string | null,
+  tagId: number | null,
+) {
+  let list = source
+  if (processState) list = list.filter(p => p.process_state === processState)
+  if (status) list = list.filter(p => p.status === status)
+  if (tagId) list = list.filter(p => (p.tag_ids || []).includes(tagId))
+  const q = keyword.trim().toLowerCase()
+  if (q) {
+    const num = parseInt(q, 10)
+    list = list.filter(p =>
+      (!Number.isNaN(num) && p.display_id === num) ||
+      (p.original_filename || '').toLowerCase().includes(q)
+    )
   }
   return list
-})
+}
+
+function pickerPriority(photo: PhotoItem) {
+  if (photo.target_id === props.targetId) return 0
+  if (photo.target_id == null) return 1
+  return 2
+}
 
 function togglePicker(id: number) {
   if (pickerSelected.has(id)) pickerSelected.delete(id)
@@ -480,6 +561,7 @@ function openReferencePreview(type: 'scene_goal' | 'empty_scene', photoId: numbe
       retouch_batch_id: null,
       client_notes: null,
       revision_notes: ref.notes,
+      tag_ids: [],
       created_at: '',
     }
   })
@@ -578,6 +660,7 @@ function onSingleUploadSuccess(response: any, _file: any, fileList: any[]) {
       retouch_batch_id: response.retouch_batch_id ?? null,
       client_notes: response.client_notes ?? null,
       revision_notes: response.revision_notes ?? null,
+      tag_ids: response.tag_ids || [],
       created_at: new Date().toISOString(),
     })
   }
@@ -710,6 +793,15 @@ async function fetchTargetInfo() {
   } catch {}
 }
 
+async function fetchProjectTags() {
+  try {
+    const data = await request.get(`/api/v1/projects/${props.projectId}/tags`)
+    projectTags.value = data.items || []
+  } catch {
+    projectTags.value = []
+  }
+}
+
 // ── 客户反馈轮询 ────────────────────────────────────────
 async function fetchProjectFeedbacks() {
   try {
@@ -745,7 +837,7 @@ function stopFeedbackPolling() {
 }
 
 onMounted(async () => {
-  await Promise.all([fetchAllPhotos(), fetchTargetInfo()])
+  await Promise.all([fetchAllPhotos(), fetchTargetInfo(), fetchProjectTags()])
   startFeedbackPolling()
 })
 
@@ -956,7 +1048,7 @@ onUnmounted(() => {
 }
 
 /* 选图器 */
-.picker-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.picker-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
 .picker-hint { font-size: 13px; color: #909399; }
 .picker-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
@@ -975,6 +1067,17 @@ onUnmounted(() => {
   position: absolute; top: 4px; left: 4px; font-size: 11px; font-weight: 700;
   color: white; background: rgba(0,0,0,0.55); padding: 1px 5px; border-radius: 4px;
 }
+.process-badge {
+  position: absolute; left: 4px; bottom: 4px; font-size: 11px; font-weight: 700;
+  color: #fff; padding: 1px 5px; border-radius: 4px; background: rgba(64, 158, 255, 0.9);
+}
+.process-badge.ps-retouched { background: rgba(230, 162, 60, 0.92); }
+.process-badge.ps-final { background: rgba(103, 194, 58, 0.92); }
+.scope-badge {
+  position: absolute; right: 4px; bottom: 4px; font-size: 11px; font-weight: 700;
+  color: #fff; padding: 1px 5px; border-radius: 4px; background: rgba(22, 119, 255, 0.9);
+}
+.scope-badge.muted { background: rgba(107, 114, 128, 0.9); }
 .check-mark {
   position: absolute; top: 4px; right: 4px; width: 22px; height: 22px;
   background: #409eff; border-radius: 50%; display: flex; align-items: center;

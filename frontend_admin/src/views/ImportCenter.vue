@@ -93,6 +93,21 @@
               <el-option v-for="t in allTags" :key="t.id" :label="t.name" :value="t.id" />
             </el-select>
           </div>
+          <div class="folder-tag-box">
+            <div class="folder-tag-head">
+              <span>文件夹批量标签</span>
+              <div class="folder-tag-actions">
+                <el-button size="small" text type="primary" :disabled="!nasSelectedPath" @click="addFolderTagRule('.')">根目录规则</el-button>
+                <el-button size="small" text type="primary" :loading="folderLoading" :disabled="!nasSelectedPath" @click="loadFolderTagRules">读取一级子文件夹</el-button>
+              </div>
+            </div>
+            <div v-if="folderTagRules.length === 0" class="folder-tag-empty">可给当前扫描目录或子文件夹预设标签，扫描入库后用于快速分拣筛选。</div>
+            <div v-for="(rule, idx) in folderTagRules" :key="idx" class="folder-tag-rule">
+              <el-input v-model="rule.path" size="small" placeholder="相对路径，如 . 或 B" class="folder-path-input" />
+              <el-input v-model="rule.tag_names" size="small" placeholder="标签名，多个用逗号分隔" />
+              <el-button size="small" text type="danger" @click="removeFolderTagRule(idx)">移除</el-button>
+            </div>
+          </div>
           <div v-if="scanTaskId" class="scan-progress">
             <el-progress :percentage="scanTotal > 0 ? Math.round((scanProcessed / scanTotal) * 100) : 0" :stroke-width="4" :status="scanStatus === 'done' ? 'success' : scanStatus === 'failed' ? 'exception' : undefined" />
             <span class="scan-text">{{ scanStatusText }}</span>
@@ -358,6 +373,7 @@ interface ProjectGroup { id: number; project_id: number; name: string; descripti
 interface ShotDateOption { date: string; label: string; count: number }
 interface PhotoSnapshot { id: number; target_id: number | null; process_state: string }
 interface UndoOperation { text: string; snapshots: PhotoSnapshot[]; busy: boolean }
+interface FolderTagRule { path: string; tag_names: string }
 
 const route = useRoute()
 const router = useRouter()
@@ -400,6 +416,8 @@ const scanStatus = ref('')
 const scanTotal = ref(0)
 const scanProcessed = ref(0)
 const nasTagIds = ref<number[]>([])
+const folderTagRules = ref<FolderTagRule[]>([])
+const folderLoading = ref(false)
 let scanPollTimer: ReturnType<typeof setInterval> | null = null
 const scanStatusText = computed(() => {
   if (scanStatus.value === 'queued') return '排队中...'
@@ -581,7 +599,52 @@ function onSingleUploadError(_e: any, file: any, fl: any[]) {
 }
 
 // ── NAS Scan ──
-function onNasPathSelected(path: string) { nasSelectedPath.value = path === '.' ? '/' : '/' + path }
+function onNasPathSelected(path: string) {
+  nasSelectedPath.value = path === '.' ? '/' : '/' + path
+  folderTagRules.value = []
+}
+
+function normalizeNasPath(path: string): string {
+  const cleaned = path.replace(/^\/+/, '').replace(/\\/g, '/')
+  return cleaned || '.'
+}
+
+function addFolderTagRule(path = '.') {
+  const normalized = path || '.'
+  if (folderTagRules.value.some(rule => rule.path === normalized)) return
+  folderTagRules.value.push({ path: normalized, tag_names: '' })
+}
+
+function removeFolderTagRule(index: number) {
+  folderTagRules.value.splice(index, 1)
+}
+
+async function loadFolderTagRules() {
+  folderLoading.value = true
+  try {
+    const json = await request.get('/api/v1/system/browse-nas', { path: normalizeNasPath(nasSelectedPath.value) })
+    const folders = (json.data?.folders || []) as string[]
+    addFolderTagRule('.')
+    folders.forEach(folder => addFolderTagRule(folder))
+    if (folders.length === 0) ElMessage.info('当前目录没有一级子文件夹')
+  } catch (e: any) {
+    ElMessage.error(e.message || '读取文件夹失败')
+  } finally {
+    folderLoading.value = false
+  }
+}
+
+function folderTagPayload() {
+  return folderTagRules.value
+    .map(rule => ({
+      path: (rule.path || '.').replace(/^\/+/, '').replace(/\\/g, '/') || '.',
+      tag_names: rule.tag_names
+        .split(/[,，\s]+/)
+        .map(name => name.trim())
+        .filter(Boolean),
+    }))
+    .filter(rule => rule.tag_names.length > 0)
+}
 async function startNasScan() {
   scanning.value = true; scanStatus.value = ''; scanTaskId.value = null
   try {
@@ -591,6 +654,7 @@ async function startNasScan() {
       nas_path: nasSelectedPath.value.replace(/^\//, ''),
       process_state: nasProcessState.value,
       tag_ids: nasTagIds.value,
+      folder_tag_rules: folderTagPayload(),
       shot_date: nasShotDate.value || null,
     })
     scanTaskId.value = data.task_id; scanStatus.value = 'queued'; startScanPolling(data.task_id); ElMessage.success('扫描任务已提交')
@@ -973,6 +1037,12 @@ onUnmounted(() => { stopScanPolling() })
 .scan-text { font-size: 11px; color: #909399; }
 .tag-select-row { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
 .tag-label { font-size: 12px; color: #909399; white-space: nowrap; }
+.folder-tag-box { margin-top: 8px; border: 1px solid #ebeef5; border-radius: 8px; padding: 8px; background: #fafcff; }
+.folder-tag-head { display: flex; align-items: center; justify-content: space-between; font-size: 12px; font-weight: 600; color: #303133; margin-bottom: 6px; }
+.folder-tag-actions { display: flex; align-items: center; gap: 4px; }
+.folder-tag-empty { font-size: 12px; color: #909399; line-height: 1.6; }
+.folder-tag-rule { display: grid; grid-template-columns: 150px 1fr auto; gap: 8px; align-items: center; margin-top: 6px; }
+.folder-path-input { font-family: Consolas, 'Courier New', monospace; }
 
 /* Zone B */
 .pool-zone { background: white; border-radius: 12px; padding: 14px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); flex: 1; display: flex; flex-direction: column; min-height: 0; }

@@ -41,6 +41,21 @@
           </el-upload>
           <span class="picker-count">{{ filteredList.length }} 张</span>
         </div>
+        <div v-if="activeCat === '_project'" class="project-filter-row">
+          <el-select v-model="projectProcessState" size="small" clearable placeholder="处理状态" style="width: 108px">
+            <el-option label="原图" value="raw" />
+            <el-option label="精修图" value="retouched" />
+            <el-option label="完成图" value="final" />
+          </el-select>
+          <el-select v-model="projectStatus" size="small" clearable placeholder="图片状态" style="width: 108px">
+            <el-option label="待处理" value="pending" />
+            <el-option label="已选中" value="selected" />
+          </el-select>
+          <el-select v-model="projectTagId" size="small" clearable placeholder="标签" style="width: 128px">
+            <el-option v-for="tag in projectTags" :key="tag.id" :label="tag.name" :value="tag.id" />
+          </el-select>
+          <span class="project-filter-hint">可按图片状态、处理阶段和标签筛选项目图片</span>
+        </div>
 
         <!-- 图片网格 -->
         <div class="picker-grid-wrap" v-loading="loading">
@@ -54,6 +69,7 @@
             >
               <img :src="img.thumbUrl" class="picker-thumb" />
               <span v-if="img.name" class="picker-label" :title="img.name">{{ img.name }}</span>
+              <span v-if="img.process_state" class="state-badge" :class="'ps-' + img.process_state">{{ processLabel[img.process_state] }}</span>
             </div>
           </div>
           <el-empty v-if="!loading && filteredList.length === 0" description="暂无图片" :image-size="50" />
@@ -80,6 +96,9 @@ interface PickedImage {
   source: 'system' | 'project'
   name?: string
   tags?: string
+  status?: string
+  process_state?: string
+  tag_ids?: number[]
 }
 
 const props = defineProps<{
@@ -105,12 +124,23 @@ const loading = ref(false)
 const imageList = ref<PickedImage[]>([])
 const selectedImage = ref<PickedImage | null>(null)
 const searchQuery = ref('')
+const projectProcessState = ref<string | null>(null)
+const projectStatus = ref<string | null>(null)
+const projectTagId = ref<number | null>(null)
+const projectTags = ref<{ id: number; name: string; color: string }[]>([])
+const processLabel: Record<string, string> = { raw: '原图', retouched: '精修', final: '完成' }
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 
 const filteredList = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
-  if (!q) return imageList.value
-  return imageList.value.filter(img =>
+  let list = imageList.value
+  if (activeCat.value === '_project') {
+    if (projectProcessState.value) list = list.filter(img => img.process_state === projectProcessState.value)
+    if (projectStatus.value) list = list.filter(img => img.status === projectStatus.value)
+    if (projectTagId.value) list = list.filter(img => (img.tag_ids || []).includes(projectTagId.value!))
+  }
+  if (!q) return list
+  return list.filter(img =>
     (img.name && img.name.toLowerCase().includes(q)) ||
     (img.tags && img.tags.toLowerCase().includes(q))
   )
@@ -197,8 +227,21 @@ async function fetchProjectPhotos() {
       thumbUrl: getStorageUrl(p.thumbnail_path || p.original_path),
       source: 'project' as const,
       name: p.original_filename || `#${String(p.display_id).padStart(3, '0')}`,
+      status: p.status,
+      process_state: p.process_state,
+      tag_ids: p.tag_ids || [],
     }))
   } catch {} finally { loading.value = false }
+}
+
+async function fetchProjectTags() {
+  if (!props.projectId) return
+  try {
+    const data = await request.get(`/api/v1/projects/${props.projectId}/tags`)
+    projectTags.value = data.items || []
+  } catch {
+    projectTags.value = []
+  }
 }
 
 function confirmSelect() {
@@ -217,6 +260,10 @@ watch(() => props.visible, (v) => {
     activeCat.value = props.category || allCategories[0].value
     selectedImage.value = null
     searchQuery.value = ''
+    projectProcessState.value = null
+    projectStatus.value = null
+    projectTagId.value = null
+    if (props.projectId) fetchProjectTags()
     fetchCatImages()
   }
 })
@@ -244,6 +291,11 @@ watch(() => props.visible, (v) => {
   display: flex; align-items: center; gap: 10px;
   margin-bottom: 10px; flex-shrink: 0;
 }
+.project-filter-row {
+  display: flex; align-items: center; gap: 8px;
+  margin: -2px 0 10px; flex-wrap: wrap;
+}
+.project-filter-hint { color: #909399; font-size: 12px; }
 .picker-count { font-size: 12px; color: #909399; margin-left: auto; }
 
 .picker-search {
@@ -269,4 +321,11 @@ watch(() => props.visible, (v) => {
   font-size: 10px; color: #fff; background: rgba(0,0,0,0.5);
   padding: 2px 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+.state-badge {
+  position: absolute; top: 4px; left: 4px;
+  color: #fff; background: rgba(64, 158, 255, 0.92);
+  border-radius: 4px; padding: 1px 5px; font-size: 10px; font-weight: 700;
+}
+.state-badge.ps-retouched { background: rgba(230, 162, 60, 0.92); }
+.state-badge.ps-final { background: rgba(103, 194, 58, 0.92); }
 </style>

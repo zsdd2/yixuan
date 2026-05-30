@@ -312,6 +312,10 @@ class ProjectTag(Base):
     )
     name: Mapped[str] = mapped_column(String(64), nullable=False)
     color: Mapped[str] = mapped_column(String(20), nullable=False, default="#409eff")
+    scope: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="project", server_default="project", index=True,
+        comment="project=项目临时标签，system=从通用标签同步到项目内使用"
+    )
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

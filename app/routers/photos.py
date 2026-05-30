@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import AsyncSessionLocal, get_db
 from app.deps import CurrentUser
 from app.models import CategoryType, Client, Photo, PhotoStatus, ProcessState, Project, ProjectGroup, ProjectTag, ProjectTarget, photo_tags
+from app.logic.status_manager import compute_project_status, compute_target_status
 from app.services.delivery_zip_service import mark_zip_dirty
 from app.schemas.photo_schema import (
     BulkTagRequest,
@@ -189,6 +190,7 @@ async def _run_scan_task(
     generate_thumbnails: bool,
     process_state: ProcessState = ProcessState.raw,
     tag_ids: list[int] | None = None,
+    folder_tag_rules: list[dict[str, Any]] | None = None,
 ) -> None:
     state = _scan_tasks[task_id]
     state["status"] = "running"
@@ -205,6 +207,34 @@ async def _run_scan_task(
     thumb_dir.mkdir(parents=True, exist_ok=True)
 
     async with AsyncSessionLocal() as session:
+        tag_ids = tag_ids or []
+        folder_tag_rules = folder_tag_rules or []
+        tag_cache: dict[str, int] = {}
+
+        async def ensure_project_tag(name: str) -> int | None:
+            tag_name = name.strip()
+            if not tag_name:
+                return None
+            if tag_name in tag_cache:
+                return tag_cache[tag_name]
+            tag = await session.scalar(
+                select(ProjectTag).where(ProjectTag.project_id == project_id, ProjectTag.name == tag_name)
+            )
+            if tag is None:
+                tag = ProjectTag(project_id=project_id, name=tag_name, color="#409eff", scope="project")
+                session.add(tag)
+                await session.flush()
+            tag_cache[tag_name] = tag.id
+            return tag.id
+
+        normalized_folder_rules: list[tuple[Path, list[str]]] = []
+        for rule in folder_tag_rules:
+            names = [str(name).strip() for name in rule.get("tag_names", []) if str(name).strip()]
+            if not names:
+                continue
+            raw_path = str(rule.get("path") or ".").strip().replace("\\", "/").strip("/")
+            normalized_folder_rules.append((Path(raw_path or "."), names))
+
         # 加载项目的所有目标及其 folder_path（用于路径自动关联）
         targets_result = await session.execute(
             select(ProjectTarget.id, ProjectTarget.folder_path)
@@ -233,6 +263,15 @@ async def _run_scan_task(
                     state["skipped"] += 1
                     state["processed"] += 1
                     continue
+
+                rel_to_scan = file_path.resolve().relative_to(scan_dir.resolve())
+                matched_tag_ids = list(tag_ids)
+                for folder_rel, names in normalized_folder_rules:
+                    if folder_rel == Path(".") or rel_to_scan == folder_rel or folder_rel in rel_to_scan.parents:
+                        for tag_name in names:
+                            ensured_id = await ensure_project_tag(tag_name)
+                            if ensured_id is not None:
+                                matched_tag_ids.append(ensured_id)
 
                 thumb_path_str: str | None = None
                 shot_at: datetime | None = None
@@ -271,9 +310,9 @@ async def _run_scan_task(
                 )
                 session.add(photo)
 
-                if tag_ids:
+                if matched_tag_ids:
                     await session.flush()
-                    for tid in tag_ids:
+                    for tid in dict.fromkeys(matched_tag_ids):
                         await session.execute(
                             photo_tags.insert().values(photo_id=photo.id, tag_id=tid)
                         )
@@ -290,6 +329,14 @@ async def _run_scan_task(
                 continue
 
         try:
+            target_ids = (await session.execute(
+                select(Photo.target_id)
+                .where(Photo.project_id == project_id, Photo.target_id.isnot(None))
+                .group_by(Photo.target_id)
+            )).scalars().all()
+            for tid in target_ids:
+                await compute_target_status(session, tid)
+            await compute_project_status(session, project_id)
             await session.commit()
         except Exception as exc:
             await session.rollback()
@@ -497,6 +544,7 @@ async def scan_nas(
         generate_thumbnails=body.generate_thumbnails,
         process_state=ps,
         tag_ids=body.tag_ids or None,
+        folder_tag_rules=[rule.model_dump() for rule in body.folder_tag_rules],
     )
 
     return ScanNasResponse(
@@ -1202,6 +1250,15 @@ async def promote_photo_to_final(
         shot_at=source.shot_at,
     )
     db.add(final_photo)
+    affected_target_ids = {photo.target_id for photo in photos if photo.target_id is not None}
+    if body.target_id is not None:
+        affected_target_ids.add(body.target_id)
+    for tid in affected_target_ids:
+        await compute_target_status(db, tid)
+    affected_project_ids = {photo.project_id for photo in photos}
+    for pid in affected_project_ids:
+        await compute_project_status(db, pid)
+
     await db.commit()
     await db.refresh(final_photo)
     await mark_zip_dirty(final_photo.project_id, db)
