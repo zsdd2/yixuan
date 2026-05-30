@@ -131,6 +131,7 @@
           <span class="process-badge" :class="'ps-' + photo.process_state">{{ processLabel[photo.process_state] }}</span>
           <span class="scope-badge" :class="usageBadgeClass(photo)">{{ usageLabel(photo) }}</span>
           <span v-if="photo.target_id && (photo.is_referenced || photo.reference_count)" class="scope-badge ref">已引用</span>
+          <button class="picker-zoom-btn" title="放大查看" @click.stop="openPreview(photo)">⌕</button>
           <div v-if="pickerSelected.has(photo.id)" class="check-mark"><el-icon><Select /></el-icon></div>
         </div>
       </div>
@@ -146,6 +147,7 @@
     <el-dialog v-model="showReferencePicker" title="选择场景参考图" width="720px" destroy-on-close>
       <div class="picker-toolbar">
         <el-input v-model="referenceSearch" placeholder="编号/文件名" :prefix-icon="Search" size="small" clearable style="width: 130px" />
+        <el-segmented v-model="referencePickerMode" :options="pickerModeOptions" size="small" />
         <el-select v-model="referenceProcessState" size="small" clearable placeholder="处理状态" style="width: 110px">
           <el-option label="原图" value="raw" />
           <el-option label="精修图" value="retouched" />
@@ -168,8 +170,11 @@
           </el-image>
           <span class="display-id-badge">#{{ String(photo.display_id).padStart(3, '0') }}</span>
           <span class="process-badge" :class="'ps-' + photo.process_state">{{ processLabel[photo.process_state] }}</span>
+          <span class="scope-badge" :class="usageBadgeClass(photo)">{{ usageLabel(photo) }}</span>
+          <button class="picker-zoom-btn" title="放大查看" @click.stop="openPreview(photo)">⌕</button>
         </div>
       </div>
+      <el-empty v-if="referencePickerPhotos.length === 0" description="暂无可选照片，可切换项目图片" :image-size="60" />
     </el-dialog>
 
     <div v-if="previewVisible" class="preview-mask" @click.self="closePreview">
@@ -399,6 +404,7 @@ const pickerTagId = ref<number | null>(null)
 const pickerSelected = reactive(new Set<number>())
 const showReferencePicker = ref(false)
 const referencePickerType = ref<'scene_goal' | 'empty_scene'>('scene_goal')
+const referencePickerMode = ref<'target' | 'project'>('target')
 const referenceSearch = ref('')
 const referenceProcessState = ref<string | null>(null)
 const referenceTagId = ref<number | null>(null)
@@ -417,15 +423,14 @@ const pickerPhotos = computed(() => {
   return [...list].sort((a, b) => pickerPriority(a) - pickerPriority(b) || b.display_id - a.display_id)
 })
 
-const referencePickerPhotos = computed(() =>
-  filterProjectPhotos(
-    allProjectPhotos.value.filter(p => p.status !== 'deleted'),
-    referenceSearch.value,
-    referenceProcessState.value,
-    null,
-    referenceTagId.value,
-  ),
-)
+const referencePickerPhotos = computed(() => {
+  let list = allProjectPhotos.value.filter(p => p.status !== 'deleted')
+  if (referencePickerMode.value === 'target') {
+    list = list.filter(p => p.target_id === props.targetId)
+  }
+  list = filterProjectPhotos(list, referenceSearch.value, referenceProcessState.value, null, referenceTagId.value)
+  return [...list].sort((a, b) => referencePriority(a) - referencePriority(b) || b.display_id - a.display_id)
+})
 
 function filterProjectPhotos(
   source: PhotoItem[],
@@ -453,6 +458,13 @@ function pickerPriority(photo: PhotoItem) {
   if (pickerMode.value === 'target') return 0
   if (photo.target_id == null && !photo.is_referenced && !photo.reference_count) return 0
   if (photo.target_id === props.targetId) return 1
+  return 2
+}
+
+function referencePriority(photo: PhotoItem) {
+  if (referencePickerMode.value === 'target') return 0
+  if (photo.target_id === props.targetId) return 0
+  if (photo.target_id == null && !photo.is_referenced && !photo.reference_count) return 1
   return 2
 }
 
@@ -512,6 +524,7 @@ function currentReferences(type: 'scene_goal' | 'empty_scene') {
 
 function openReferencePicker(type: 'scene_goal' | 'empty_scene') {
   referencePickerType.value = type
+  referencePickerMode.value = 'target'
   showReferencePicker.value = true
 }
 
@@ -531,6 +544,11 @@ async function setReference(photoId: number) {
       asset_type: referencePickerType.value,
       photo_id: photoId,
     })
+    const photo = allProjectPhotos.value.find(item => item.id === photoId)
+    if (photo && photo.target_id == null) {
+      await request.patch('/api/v1/photos/bulk-update', { photo_ids: [photoId], target_id: props.targetId })
+      photo.target_id = props.targetId
+    }
     showReferencePicker.value = false
     await fetchTargetReferences()
     ElMessage.success('场景参考图已更新')
@@ -1101,6 +1119,26 @@ onUnmounted(() => {
 .scope-badge.used { background: rgba(245, 108, 108, 0.9); }
 .scope-badge.warn { background: rgba(230, 162, 60, 0.95); }
 .scope-badge.ref { bottom: 22px; background: rgba(230, 162, 60, 0.95); }
+.picker-zoom-btn {
+  position: absolute;
+  bottom: 24px;
+  left: 4px;
+  width: 22px;
+  height: 22px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.92);
+  color: #409eff;
+  cursor: pointer;
+  z-index: 4;
+  font-size: 14px;
+  font-weight: 700;
+}
+.photo-thumb:hover .picker-zoom-btn { display: flex; }
+.picker-zoom-btn:hover { background: #409eff; color: #fff; }
 .check-mark {
   position: absolute; top: 4px; right: 4px; width: 22px; height: 22px;
   background: #409eff; border-radius: 50%; display: flex; align-items: center;

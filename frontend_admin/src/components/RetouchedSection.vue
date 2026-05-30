@@ -93,17 +93,27 @@
       </div>
     </el-dialog>
 
-    <el-dialog v-model="showUploadDialog" title="选择精修图" width="640px" destroy-on-close>
+    <el-dialog v-model="showUploadDialog" title="选择精修图" width="760px" destroy-on-close>
       <el-form label-width="90px">
         <el-form-item label="源原图">
-          <el-select v-model="uploadParentId" placeholder="选择已确认的原图" filterable style="width: 100%">
-            <el-option
-              v-for="p in confirmedRaws"
-              :key="p.id"
-              :label="`#${displayId(p)} ${p.original_filename || ''}`"
-              :value="p.id"
-            />
-          </el-select>
+          <div class="source-photo-picker">
+            <div class="source-photo-grid">
+              <div
+                v-for="p in confirmedRaws"
+                :key="p.id"
+                :class="['source-photo-card', { selected: uploadParentId === p.id }]"
+                @click="uploadParentId = p.id"
+              >
+                <el-image :src="thumbUrl(p)" fit="cover" lazy class="source-photo-img">
+                  <template #error><div class="thumb-error"><el-icon><PictureFilled /></el-icon></div></template>
+                </el-image>
+                <span class="display-id-badge">#{{ displayId(p) }}</span>
+                <button class="zoom-btn card-zoom" title="放大查看" @click.stop="emit('preview', p)">⌕</button>
+                <div class="source-photo-name" :title="p.original_filename || ''">{{ p.original_filename || `#${displayId(p)}` }}</div>
+              </div>
+            </div>
+            <el-empty v-if="confirmedRaws.length === 0" description="暂无已确认原图" :image-size="40" />
+          </div>
         </el-form-item>
         <el-form-item label="修改说明">
           <el-input v-model="uploadRevisionNotes" type="textarea" :rows="2" placeholder="本次修改的内容说明" />
@@ -118,6 +128,10 @@
         <el-form-item label="图片来源">
           <el-tabs v-model="sourceTab" class="source-tabs">
             <el-tab-pane label="从项目选择" name="existing">
+              <div class="existing-picker-head">
+                <el-segmented v-model="sourcePhotoMode" :options="sourcePhotoModeOptions" size="small" />
+                <span class="picker-hint">默认显示当前子项目图片，找不到时可切换项目图片。</span>
+              </div>
               <div class="existing-photo-grid">
                 <div
                   v-for="photo in selectablePhotos"
@@ -129,6 +143,9 @@
                     <template #error><div class="thumb-error">-</div></template>
                   </el-image>
                   <span class="display-id-badge">#{{ displayId(photo) }}</span>
+                  <span class="state-badge">{{ processLabel(photo.process_state) }}</span>
+                  <button class="zoom-btn card-zoom" title="放大查看" @click.stop="emit('preview', photo)">⌕</button>
+                  <div class="source-photo-name" :title="photo.original_filename || ''">{{ photo.original_filename || `#${displayId(photo)}` }}</div>
                   <div v-if="selectedExistingIds.has(photo.id)" class="check-mark">✓</div>
                 </div>
               </div>
@@ -317,10 +334,27 @@ const retouchFiles = ref<File[]>([])
 const uploading = ref(false)
 const sourceTab = ref<'existing' | 'upload'>('existing')
 const selectedExistingIds = ref(new Set<number>())
+const sourcePhotoMode = ref<'target' | 'project'>('target')
+const sourcePhotoModeOptions = [
+  { label: '子项目图片', value: 'target' },
+  { label: '项目图片', value: 'project' },
+]
 
-const selectablePhotos = computed(() =>
-  props.projectPhotos.filter(p => p.status !== 'deleted' && p.process_state !== 'retouched' && p.process_state !== 'final')
-)
+const selectablePhotos = computed(() => {
+  const source = sourcePhotoMode.value === 'target' ? props.photos : props.projectPhotos
+  return source
+    .filter(p => p.status !== 'deleted' && p.process_state !== 'retouched' && p.process_state !== 'final')
+    .sort((a, b) => {
+      const aCurrent = a.target_id === props.targetId ? 0 : 1
+      const bCurrent = b.target_id === props.targetId ? 0 : 1
+      return aCurrent - bCurrent || b.display_id - a.display_id
+    })
+})
+
+function processLabel(value: string): string {
+  const map: Record<string, string> = { raw: '原图', retouched: '精修', final: '完成' }
+  return map[value] || value
+}
 
 function toggleExistingSelection(id: number) {
   const next = new Set(selectedExistingIds.value)
@@ -393,6 +427,7 @@ function resetDialog() {
   retouchFiles.value = []
   selectedExistingIds.value = new Set()
   sourceTab.value = 'existing'
+  sourcePhotoMode.value = 'target'
   retouchUploadRef.value?.clearFiles?.()
 }
 
@@ -528,6 +563,8 @@ async function saveNotes() {
 
 .display-id-badge { left: 6px; }
 .version-badge { right: 6px; background: rgba(230,162,60,0.9); }
+.photo-thumb .display-id-badge,
+.source-photo-card .display-id-badge { top: 4px; }
 
 .client-note { color: #e6a23c; }
 .thumb-error { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: #f5f7fa; color: #c0c4cc; }
@@ -690,15 +727,41 @@ async function saveNotes() {
 }
 
 .source-tabs { width: 100%; }
+.source-photo-picker,
+.existing-picker-head {
+  width: 100%;
+}
+
+.existing-picker-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.picker-hint {
+  font-size: 12px;
+  color: #909399;
+}
+
+.source-photo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  gap: 10px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
 .existing-photo-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
   gap: 8px;
   max-height: 280px;
   overflow-y: auto;
 }
 
-.photo-thumb {
+.photo-thumb,
+.source-photo-card {
   position: relative;
   border-radius: 8px;
   overflow: hidden;
@@ -708,9 +771,45 @@ async function saveNotes() {
   aspect-ratio: 1;
 }
 
-.photo-thumb:hover { transform: scale(1.03); }
-.photo-thumb.selected { border-color: #409eff; box-shadow: 0 0 0 2px rgba(64,158,255,0.3); }
-.thumb-img { width: 100%; height: 100%; }
+.photo-thumb:hover,
+.source-photo-card:hover { transform: scale(1.03); }
+.photo-thumb.selected,
+.source-photo-card.selected { border-color: #409eff; box-shadow: 0 0 0 2px rgba(64,158,255,0.3); }
+.thumb-img,
+.source-photo-img { width: 100%; height: 100%; }
+.source-photo-name {
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  bottom: 4px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  background: rgba(0,0,0,0.55);
+  color: white;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.state-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: rgba(64, 158, 255, 0.9);
+  color: white;
+  font-size: 11px;
+  font-weight: 700;
+}
+.card-zoom {
+  left: 6px;
+  bottom: 28px;
+}
+.photo-thumb:hover .card-zoom,
+.source-photo-card:hover .card-zoom {
+  display: flex;
+}
 .check-mark {
   position: absolute;
   top: 4px;

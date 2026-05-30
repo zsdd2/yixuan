@@ -76,17 +76,28 @@
 
     <el-empty v-if="finalPhotos.length === 0" description="暂无完成图" :image-size="60" />
 
-    <el-dialog v-model="showUploadDialog" title="选择完成图" width="520px" destroy-on-close>
+    <el-dialog v-model="showUploadDialog" title="选择完成图" width="720px" destroy-on-close>
       <el-form label-width="90px">
         <el-form-item label="关联精修图">
-          <el-select v-model="uploadParentId" placeholder="选择已确认精修图" filterable style="width: 100%">
-            <el-option
-              v-for="p in confirmedRetouchedPhotos"
-              :key="p.id"
-              :label="`#${String(p.display_id).padStart(3, '0')} ${qualityLabel(p.retouch_quality)}`"
-              :value="p.id"
-            />
-          </el-select>
+          <div class="source-photo-picker">
+            <div class="source-photo-grid">
+              <div
+                v-for="p in confirmedRetouchedPhotos"
+                :key="p.id"
+                :class="['source-photo-card', { selected: uploadParentId === p.id }]"
+                @click="uploadParentId = p.id"
+              >
+                <el-image :src="thumbUrl(p)" fit="cover" lazy class="source-photo-img">
+                  <template #error><div class="thumb-error"><el-icon><PictureFilled /></el-icon></div></template>
+                </el-image>
+                <span class="display-id-badge">#{{ displayId(p) }}</span>
+                <span v-if="p.retouch_quality" class="quality-badge">{{ qualityLabel(p.retouch_quality) }}</span>
+                <button class="zoom-btn card-zoom" title="放大查看" @click.stop="emit('preview', p)">⌕</button>
+                <div class="source-photo-name" :title="p.original_filename || ''">{{ p.original_filename || `#${displayId(p)}` }}</div>
+              </div>
+            </div>
+            <el-empty v-if="confirmedRetouchedPhotos.length === 0" description="暂无精修图" :image-size="40" />
+          </div>
         </el-form-item>
         <el-form-item label="生成方式">
           <el-radio-group v-model="finalSourceMode">
@@ -374,6 +385,93 @@ async function uploadFinal() {
 
 .final-thumb-wrapper:hover .zoom-btn { display: flex; }
 .zoom-btn:hover { background: #409eff; color: #fff; }
+
+.source-photo-picker {
+  width: 100%;
+}
+
+.source-photo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 10px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.source-photo-card {
+  position: relative;
+  aspect-ratio: 1;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  background: #f5f7fa;
+  transition: border-color 0.15s, transform 0.15s;
+}
+
+.source-photo-card:hover {
+  transform: scale(1.03);
+}
+
+.source-photo-card.selected {
+  border-color: #409eff;
+  box-shadow: 0 0 0 2px rgba(64,158,255,0.3);
+}
+
+.source-photo-img,
+.source-photo-img :deep(img) {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.display-id-badge {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(0,0,0,0.55);
+  color: white;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.quality-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: rgba(230, 162, 60, 0.92);
+  color: white;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.source-photo-name {
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  bottom: 4px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  background: rgba(0,0,0,0.55);
+  color: white;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-zoom {
+  left: 6px;
+  bottom: 28px;
+}
+
+.source-photo-card:hover .card-zoom {
+  display: flex;
+}
 
 @media (max-width: 768px) {
   .download-icon {
