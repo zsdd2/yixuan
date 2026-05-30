@@ -804,6 +804,8 @@ async def list_targets(
         else:
             if pc == 0:
                 computed_status = "not_started"
+            elif fc > 0:
+                computed_status = "completed"
             elif rtc > 0 or fc > 0:
                 computed_status = "retouching"
             else:

@@ -208,19 +208,31 @@ async def _work_progress(
         for status in ProjectStatus
     ]
 
+    final_target_ids = set((await db.execute(
+        select(Photo.target_id)
+        .join(Project, Photo.project_id == Project.id)
+        .where(
+            *filters,
+            Photo.target_id.isnot(None),
+            Photo.deleted_at.is_(None),
+            Photo.status != PhotoStatus.deleted,
+            Photo.process_state == ProcessState.final,
+        )
+        .group_by(Photo.target_id)
+    )).scalars().all())
+
     target_rows = (await db.execute(
-        select(ProjectTarget.category_type, ProjectTarget.target_status, func.count(ProjectTarget.id))
+        select(ProjectTarget.id, ProjectTarget.category_type, ProjectTarget.target_status)
         .join(Project, ProjectTarget.project_id == Project.id)
         .where(*filters, ProjectTarget.deleted_at.is_(None))
-        .group_by(ProjectTarget.category_type, ProjectTarget.target_status)
     )).all()
     category_total = {"white": 0, "scene": 0}
     category_completed = {"white": 0, "scene": 0}
-    for category, target_status, count in target_rows:
+    for target_id, category, target_status in target_rows:
         key = category.value
-        category_total[key] += int(count or 0)
-        if target_status == TargetStatus.completed:
-            category_completed[key] += int(count or 0)
+        category_total[key] += 1
+        if target_status == TargetStatus.completed or target_id in final_target_ids:
+            category_completed[key] += 1
 
     photo_rows = (await db.execute(
         select(Photo.process_state, func.count(Photo.id))
@@ -247,20 +259,21 @@ async def _work_progress(
         target_summary_rows = (await db.execute(
             select(
                 ProjectTarget.project_id,
+                ProjectTarget.id,
                 ProjectTarget.category_type,
-                func.count(ProjectTarget.id),
-                func.coalesce(func.sum(case((ProjectTarget.target_status == TargetStatus.completed, 1), else_=0)), 0),
+                ProjectTarget.target_status,
             )
             .where(ProjectTarget.project_id.in_(project_ids), ProjectTarget.deleted_at.is_(None))
-            .group_by(ProjectTarget.project_id, ProjectTarget.category_type)
         )).all()
-        for project_id, category, total, completed in target_summary_rows:
+        for project_id, target_id, category, target_status in target_summary_rows:
             if category == CategoryType.scene:
-                scene_totals[project_id] = int(total or 0)
-                scene_completed[project_id] = int(completed or 0)
+                scene_totals[project_id] = scene_totals.get(project_id, 0) + 1
+                if target_status == TargetStatus.completed or target_id in final_target_ids:
+                    scene_completed[project_id] = scene_completed.get(project_id, 0) + 1
             else:
-                white_totals[project_id] = int(total or 0)
-                white_completed[project_id] = int(completed or 0)
+                white_totals[project_id] = white_totals.get(project_id, 0) + 1
+                if target_status == TargetStatus.completed or target_id in final_target_ids:
+                    white_completed[project_id] = white_completed.get(project_id, 0) + 1
 
         client_ids = list({project.client_id for project in project_rows})
         if client_ids:
@@ -553,4 +566,79 @@ async def analytics_compass(
         "work_progress": await _work_progress(db, current_user, client_id, shooting_type),
         "annual_trends": await _annual_trends(db, current_user, year, client_id, shooting_type),
         "client_business": await _client_business(db, current_user, year, month, client_id, shooting_type),
+    }
+
+
+@router.get("/billing-projects", summary="数据罗盘账目项目明细")
+async def analytics_billing_projects(
+    current_user: CurrentUser,
+    amount_type: str = Query("receivable", pattern="^(receivable|received|unreceived)$"),
+    year: int = Query(default_factory=lambda: datetime.now().year, ge=2000, le=2100),
+    month: int | None = Query(None, ge=1, le=12),
+    client_id: int | None = Query(None),
+    shooting_type: str | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
+    if month is None:
+        month = datetime.now().month
+    start, end = _period_bounds(year, month)
+    filters = _project_filters(current_user, client_id, shooting_type)
+
+    stmt = (
+        select(
+            Project.id,
+            Project.name,
+            Project.display_id,
+            Client.name.label("client_name"),
+            ProjectBillingSummary.total_amount,
+            ProjectBillingSummary.billing_status,
+            ProjectBillingSummary.confirmed_at,
+            ProjectBillingSummary.paid_at,
+        )
+        .join(Client, Project.client_id == Client.id)
+        .join(ProjectBillingSummary, ProjectBillingSummary.project_id == Project.id)
+        .where(*filters)
+    )
+    if amount_type == "receivable":
+        stmt = stmt.where(
+            ProjectBillingSummary.billing_status.in_(("confirmed", "paid")),
+            ProjectBillingSummary.confirmed_at.isnot(None),
+            ProjectBillingSummary.confirmed_at >= start,
+            ProjectBillingSummary.confirmed_at < end,
+        ).order_by(ProjectBillingSummary.confirmed_at.desc())
+    elif amount_type == "received":
+        stmt = stmt.where(
+            ProjectBillingSummary.billing_status == "paid",
+            ProjectBillingSummary.paid_at.isnot(None),
+            ProjectBillingSummary.paid_at >= start,
+            ProjectBillingSummary.paid_at < end,
+        ).order_by(ProjectBillingSummary.paid_at.desc())
+    else:
+        stmt = stmt.where(
+            ProjectBillingSummary.billing_status == "confirmed",
+            ProjectBillingSummary.confirmed_at.isnot(None),
+            ProjectBillingSummary.confirmed_at >= start,
+            ProjectBillingSummary.confirmed_at < end,
+        ).order_by(ProjectBillingSummary.confirmed_at.desc())
+
+    rows = (await db.execute(stmt.limit(100))).all()
+    items = [
+        {
+            "project_id": project_id,
+            "project_name": project_name,
+            "project_display_id": display_id,
+            "client_name": client_name,
+            "amount": _money(amount),
+            "billing_status": billing_status,
+            "confirmed_at": confirmed_at.isoformat() if confirmed_at else None,
+            "paid_at": paid_at.isoformat() if paid_at else None,
+        }
+        for project_id, project_name, display_id, client_name, amount, billing_status, confirmed_at, paid_at in rows
+    ]
+    return {
+        "year": year,
+        "month": month,
+        "amount_type": amount_type,
+        "total_amount": _money(sum(item["amount"] for item in items)),
+        "items": items,
     }

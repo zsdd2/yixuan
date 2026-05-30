@@ -27,7 +27,13 @@
     </header>
 
     <section class="metric-grid" v-loading="loading">
-      <div v-for="metric in metrics" :key="metric.key" class="metric-card">
+      <div
+        v-for="metric in metrics"
+        :key="metric.key"
+        class="metric-card"
+        :class="{ clickable: isBillingMetric(metric.key) }"
+        @click="openBillingModal(metric.key)"
+      >
         <div class="metric-icon" :class="metric.tone">
           <el-icon><component :is="metric.icon" /></el-icon>
         </div>
@@ -44,6 +50,36 @@
         </div>
       </div>
     </section>
+
+    <el-dialog v-model="billingModal.visible" :title="billingModalTitle" width="820px" destroy-on-close>
+      <div class="billing-modal-toolbar">
+        <el-select v-model="billingModal.year" class="billing-year" @change="fetchBillingProjects">
+          <el-option v-for="year in yearOptions" :key="year" :label="`${year}年`" :value="year" />
+        </el-select>
+        <el-select v-model="billingModal.month" class="billing-month" @change="fetchBillingProjects">
+          <el-option v-for="m in 12" :key="m" :label="`${m}月`" :value="m" />
+        </el-select>
+        <span class="billing-modal-total">合计 ¥{{ formatNumber(billingModal.total_amount) }}</span>
+      </div>
+      <el-table :data="billingModal.items" v-loading="billingModal.loading" border stripe max-height="420" empty-text="暂无项目">
+        <el-table-column prop="project_display_id" label="项目编号" width="130" />
+        <el-table-column prop="project_name" label="项目名称" min-width="180" show-overflow-tooltip>
+          <template #default="{ row }">
+            <button class="client-link" @click="openProject(row.project_id)">{{ row.project_name }}</button>
+          </template>
+        </el-table-column>
+        <el-table-column prop="client_name" label="客户" width="140" show-overflow-tooltip />
+        <el-table-column prop="amount" label="金额" width="130" align="right">
+          <template #default="{ row }">¥{{ formatNumber(row.amount) }}</template>
+        </el-table-column>
+        <el-table-column prop="billing_status" label="账目状态" width="110" align="center">
+          <template #default="{ row }">{{ billingStatusLabel[row.billing_status] || row.billing_status }}</template>
+        </el-table-column>
+        <el-table-column label="确认时间" width="130">
+          <template #default="{ row }">{{ formatDate(row.confirmed_at) }}</template>
+        </el-table-column>
+      </el-table>
+    </el-dialog>
 
     <section class="panel work-panel">
       <div class="section-header">工作进度</div>
@@ -178,12 +214,12 @@
               <tr v-if="clientBusiness.consumption_ranking.length === 0"><td colspan="5" class="empty">暂无数据</td></tr>
             </tbody>
           </table>
-          <div class="table-more">查看全部 〉</div>
+          <button class="table-more" @click="openBusinessModal('consumption')">查看全部 〉</button>
         </div>
         <div class="sub-panel table-panel">
           <h3>
             <span class="tab-active">客户产出排行</span>
-            <span class="tab-muted">客户项目数排行</span>
+            <button class="tab-muted" @click="openBusinessModal('projects')">客户项目数排行</button>
           </h3>
           <table>
             <thead>
@@ -201,12 +237,12 @@
               <tr v-if="clientBusiness.output_ranking.length === 0"><td colspan="4" class="empty">暂无数据</td></tr>
             </tbody>
           </table>
-          <div class="table-more">查看全部 〉</div>
+          <button class="table-more" @click="openBusinessModal('output')">查看全部 〉</button>
         </div>
         <div class="sub-panel alert-panel">
-          <h3>未收款提醒 <span>更多〉</span></h3>
+          <h3>未收款提醒 <button @click="openBusinessModal('alerts')">更多〉</button></h3>
           <div class="alert-list">
-            <div v-for="alert in clientBusiness.payment_alerts" :key="alert.project_id" class="alert-item">
+            <div v-for="alert in clientBusiness.payment_alerts" :key="alert.project_id" class="alert-item" @click="openProject(alert.project_id)">
               <div class="alert-icon">¥</div>
               <div class="alert-body">
                 <b>{{ alert.client_name }} · {{ alert.project_name }}</b>
@@ -221,6 +257,52 @@
         </div>
       </div>
     </section>
+
+    <el-dialog v-model="businessModal.visible" :title="businessModalTitle" width="860px" destroy-on-close>
+      <el-table v-if="businessModal.kind === 'consumption' || businessModal.kind === 'projects'" :data="businessModalConsumptionRows" border stripe max-height="460">
+        <el-table-column type="index" label="排名" width="70" />
+        <el-table-column prop="client_name" label="客户名称" min-width="180">
+          <template #default="{ row }">
+            <button class="client-link" @click="openClientProjects(row.client_id)">{{ row.client_name }}</button>
+          </template>
+        </el-table-column>
+        <el-table-column prop="project_count" label="项目数" width="100" align="center" />
+        <el-table-column prop="receivable_amount" label="应收金额" width="140" align="right">
+          <template #default="{ row }">¥{{ formatNumber(row.receivable_amount) }}</template>
+        </el-table-column>
+        <el-table-column prop="received_amount" label="已收金额" width="140" align="right">
+          <template #default="{ row }">¥{{ formatNumber(row.received_amount) }}</template>
+        </el-table-column>
+        <el-table-column prop="unreceived_amount" label="未收金额" width="140" align="right">
+          <template #default="{ row }">¥{{ formatNumber(row.unreceived_amount) }}</template>
+        </el-table-column>
+      </el-table>
+      <el-table v-else-if="businessModal.kind === 'output'" :data="clientBusiness.output_ranking" border stripe max-height="460">
+        <el-table-column type="index" label="排名" width="70" />
+        <el-table-column prop="client_name" label="客户名称" min-width="180">
+          <template #default="{ row }">
+            <button class="client-link" @click="openClientProjects(row.client_id)">{{ row.client_name }}</button>
+          </template>
+        </el-table-column>
+        <el-table-column prop="final_photo_count" label="最终成图数" width="130" align="right" />
+        <el-table-column prop="white_final_count" label="白图最终图" width="130" align="right" />
+        <el-table-column prop="scene_final_count" label="场景图最终图" width="130" align="right" />
+      </el-table>
+      <el-table v-else :data="clientBusiness.payment_alerts" border stripe max-height="460">
+        <el-table-column prop="project_name" label="项目名称" min-width="190">
+          <template #default="{ row }">
+            <button class="client-link" @click="openProject(row.project_id)">{{ row.project_name }}</button>
+          </template>
+        </el-table-column>
+        <el-table-column prop="client_name" label="客户" width="150" />
+        <el-table-column prop="amount" label="未收金额" width="140" align="right">
+          <template #default="{ row }">¥{{ formatNumber(row.amount) }}</template>
+        </el-table-column>
+        <el-table-column label="确认时间" width="140">
+          <template #default="{ row }">{{ formatDate(row.confirmed_at) }}</template>
+        </el-table-column>
+      </el-table>
+    </el-dialog>
   </div>
 </template>
 
@@ -325,6 +407,17 @@ interface WorkProject {
   scene_completed: number
 }
 
+interface BillingProjectItem {
+  project_id: number
+  project_name: string
+  project_display_id: string
+  client_name: string
+  amount: number
+  billing_status: string
+  confirmed_at: string | null
+  paid_at: string | null
+}
+
 const now = new Date()
 const router = useRouter()
 const yearOptions = Array.from({ length: 7 }, (_, i) => now.getFullYear() - 4 + i)
@@ -371,6 +464,19 @@ const outputChartRef = ref<HTMLDivElement>()
 const incomeChartRef = ref<HTMLDivElement>()
 const selectedWorkStatus = ref('shooting')
 const selectedWorkProjectId = ref<number | null>(null)
+const billingModal = reactive({
+  visible: false,
+  loading: false,
+  amount_type: 'receivable',
+  year: now.getFullYear(),
+  month: now.getMonth() + 1,
+  total_amount: 0,
+  items: [] as BillingProjectItem[],
+})
+const businessModal = reactive({
+  visible: false,
+  kind: 'consumption' as 'consumption' | 'output' | 'projects' | 'alerts',
+})
 let statusChart: ChartInstance = null
 let outputChart: ChartInstance = null
 let incomeChart: ChartInstance = null
@@ -386,6 +492,39 @@ const metrics = computed(() => [
   metric('received_amount', '已收金额', Money, overview.received_amount, '¥', '', 'green'),
   metric('unreceived_amount', '未收金额', Warning, overview.unreceived_amount, '¥', '', 'orange'),
 ])
+
+const billingStatusLabel: Record<string, string> = {
+  draft: '草稿',
+  confirmed: '已确认',
+  paid: '已收款',
+}
+
+const billingModalTitle = computed(() => {
+  const map: Record<string, string> = {
+    receivable: '应收金额项目明细',
+    received: '已收金额项目明细',
+    unreceived: '未收金额项目明细',
+  }
+  return map[billingModal.amount_type] || '账目项目明细'
+})
+
+const businessModalTitle = computed(() => {
+  const map = {
+    consumption: '客户消费排行',
+    output: '客户产出排行',
+    projects: '客户项目数排行',
+    alerts: '未收款提醒',
+  }
+  return map[businessModal.kind]
+})
+
+const businessModalConsumptionRows = computed(() => {
+  const rows = [...clientBusiness.consumption_ranking]
+  if (businessModal.kind === 'projects') {
+    rows.sort((a, b) => b.project_count - a.project_count)
+  }
+  return rows
+})
 
 function metric(key: string, label: string, icon: Component, source: OverviewMetric, prefix: string, unit: string, tone: string) {
   return {
@@ -478,7 +617,51 @@ function openProject(projectId: number) {
 }
 
 function openClientProjects(clientId: number) {
-  router.push({ name: 'ClientProjects', params: { clientId }, query: { status: 'all' } })
+  if (!clientId) return
+  router.push(`/clients/${clientId}/projects?status=all`)
+}
+
+function isBillingMetric(key: string) {
+  return key === 'receivable_amount' || key === 'received_amount' || key === 'unreceived_amount'
+}
+
+function openBillingModal(key: string) {
+  if (!isBillingMetric(key)) return
+  const map: Record<string, string> = {
+    receivable_amount: 'receivable',
+    received_amount: 'received',
+    unreceived_amount: 'unreceived',
+  }
+  billingModal.amount_type = map[key]
+  billingModal.year = filter.year
+  billingModal.month = filter.month || now.getMonth() + 1
+  billingModal.visible = true
+  fetchBillingProjects()
+}
+
+async function fetchBillingProjects() {
+  billingModal.loading = true
+  try {
+    const params: Record<string, any> = {
+      amount_type: billingModal.amount_type,
+      year: billingModal.year,
+      month: billingModal.month,
+    }
+    if (filter.client_id) params.client_id = filter.client_id
+    if (filter.shooting_type) params.shooting_type = filter.shooting_type
+    const data = await request.get('/api/v1/analytics/billing-projects', params)
+    billingModal.total_amount = data.total_amount || 0
+    billingModal.items = data.items || []
+  } catch (e: any) {
+    ElMessage.error(e.message || '账目明细加载失败')
+  } finally {
+    billingModal.loading = false
+  }
+}
+
+function openBusinessModal(kind: 'consumption' | 'output' | 'projects' | 'alerts') {
+  businessModal.kind = kind
+  businessModal.visible = true
 }
 
 async function ensureChartCore() {
@@ -522,23 +705,12 @@ function renderStatusChart() {
   const total = data.reduce((sum, item) => sum + Number(item.value), 0)
   statusChart.setOption({
     tooltip: { trigger: 'item' },
-    legend: {
-      right: 8,
-      top: 18,
-      orient: 'vertical',
-      itemWidth: 10,
-      itemHeight: 10,
-      formatter(name: string) {
-        const item = data.find(row => row.name === name)
-        const rate = total ? ((Number(item?.value || 0) / total) * 100).toFixed(1) : '0.0'
-        return `${name}        ${item?.value || 0} (${rate}%)`
-      },
-    },
+    legend: { show: false },
     series: [{
       type: 'pie',
-      radius: ['48%', '78%'],
-      center: ['30%', '52%'],
-      avoidLabelOverlap: true,
+      radius: ['50%', '78%'],
+      center: ['50%', '52%'],
+      avoidLabelOverlap: false,
       label: {
         position: 'center',
         formatter: `总项目数\n{total|${total}}\n↑`,
@@ -718,6 +890,15 @@ onBeforeUnmount(() => {
   box-shadow: 0 8px 20px rgba(16, 24, 40, 0.06);
 }
 
+.metric-card.clickable {
+  cursor: pointer;
+}
+
+.metric-card.clickable:hover {
+  border-color: #7fb3ff;
+  box-shadow: 0 10px 24px rgba(18, 101, 232, 0.12);
+}
+
 .metric-icon {
   width: 54px;
   height: 54px;
@@ -771,8 +952,8 @@ onBeforeUnmount(() => {
 }
 
 .work-flow-grid {
-  grid-template-columns: 0.92fr 1.06fr 1fr;
-  min-height: 294px;
+  grid-template-columns: 1fr 1.13fr 1.12fr;
+  min-height: 292px;
 }
 
 .trend-grid,
@@ -809,26 +990,28 @@ onBeforeUnmount(() => {
 .status-chart { height: 216px; }
 .status-flow-panel {
   display: grid;
-  grid-template-columns: 1.05fr 0.95fr;
+  grid-template-columns: 210px minmax(150px, 1fr);
   grid-template-rows: auto 1fr auto;
-  gap: 0 14px;
+  gap: 0 18px;
 }
 .status-flow-panel h3 {
   grid-column: 1 / -1;
 }
 .status-flow-panel .status-chart {
+  width: 210px;
   height: 210px;
+  align-self: center;
 }
 .status-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding-top: 12px;
+  gap: 8px;
+  padding-top: 18px;
 }
 .status-row {
-  height: 34px;
+  height: 32px;
   display: grid;
-  grid-template-columns: 12px 1fr auto;
+  grid-template-columns: 12px minmax(66px, 1fr) minmax(86px, auto);
   align-items: center;
   gap: 10px;
   border: 0;
@@ -845,6 +1028,7 @@ onBeforeUnmount(() => {
 .status-row b {
   font-size: 13px;
   font-weight: 800;
+  text-align: right;
 }
 .status-dot {
   width: 9px;
@@ -1164,11 +1348,21 @@ onBeforeUnmount(() => {
 }
 
 .table-more {
+  width: 100%;
   height: 32px;
   display: grid;
   place-items: center;
   color: #8a96a8;
   font-size: 12px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.table-more:hover,
+.tab-muted:hover,
+.alert-panel h3 button:hover {
+  color: #1265e8;
 }
 
 .tab-active {
@@ -1180,6 +1374,10 @@ onBeforeUnmount(() => {
 .tab-muted {
   margin-left: 22px;
   color: #475467 !important;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
 }
 
 .alert-panel h3 {
@@ -1187,9 +1385,12 @@ onBeforeUnmount(() => {
   justify-content: space-between;
 }
 
-.alert-panel h3 span {
+.alert-panel h3 button {
   color: #8a96a8;
   font-size: 12px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
 }
 
 .alert-list {
@@ -1209,6 +1410,11 @@ onBeforeUnmount(() => {
   gap: 10px;
   padding: 8px 12px;
   border-bottom: 1px solid #edf1f6;
+  cursor: pointer;
+}
+
+.alert-item:hover {
+  background: #f8fbff;
 }
 
 .alert-item:last-child { border-bottom: 0; }
@@ -1258,6 +1464,25 @@ onBeforeUnmount(() => {
 .empty-alert {
   display: grid;
   place-items: center;
+}
+
+.billing-modal-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.billing-year,
+.billing-month {
+  width: 120px;
+}
+
+.billing-modal-total {
+  margin-left: auto;
+  color: #0f172a;
+  font-size: 16px;
+  font-weight: 900;
 }
 
 :deep(.el-progress-bar__outer) {

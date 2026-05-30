@@ -343,13 +343,13 @@ async function fetchDeliveryPhotos() {
 
     projectName.value = projectData.name || ''
 
-    const targetMap = new Map<number, { name: string; category_type: string; completed: boolean }>()
+    const targetMap = new Map<number, { name: string; category_type: string }>()
     for (const t of targetsData.items) {
-      targetMap.set(t.id, { name: t.name, category_type: t.category_type, completed: t.target_status === 'completed' })
+      targetMap.set(t.id, { name: t.name, category_type: t.category_type })
     }
 
     photos.value = photosData.items
-      .filter((p: any) => p.status !== 'deleted' && targetMap.get(p.target_id)?.completed)
+      .filter((p: any) => p.status !== 'deleted' && targetMap.has(p.target_id))
       .map((p: any) => {
         const target = targetMap.get(p.target_id) || { name: '未分配', category_type: 'white' }
         return {

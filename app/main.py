@@ -11,7 +11,7 @@ from app.init_db import seed_admin_user, seed_builtin_templates
 from app.routers import analytics, auth, billing, clients, deliveries, guest, photos, projects, reviews, settings, system, tags, users
 from app.services.delivery_scheduler import start_scheduler, stop_scheduler
 
-APP_VERSION = "1.0.11"
+APP_VERSION = "1.0.12"
 
 
 # ── 生命周期事件 ──────────────────────────────────────────
