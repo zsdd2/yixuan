@@ -230,8 +230,63 @@ async def _work_progress(
     )).all()
     photo_map = {state: int(count or 0) for state, count in photo_rows}
 
+    project_rows = (await db.execute(
+        select(Project)
+        .where(*filters)
+        .order_by(Project.estimated_end_time.asc().nulls_last(), Project.created_at.desc())
+        .limit(120)
+    )).scalars().all()
+    project_ids = [project.id for project in project_rows]
+    white_totals: dict[int, int] = {}
+    white_completed: dict[int, int] = {}
+    scene_totals: dict[int, int] = {}
+    scene_completed: dict[int, int] = {}
+    client_names: dict[int, str] = {}
+
+    if project_ids:
+        target_summary_rows = (await db.execute(
+            select(
+                ProjectTarget.project_id,
+                ProjectTarget.category_type,
+                func.count(ProjectTarget.id),
+                func.coalesce(func.sum(case((ProjectTarget.target_status == TargetStatus.completed, 1), else_=0)), 0),
+            )
+            .where(ProjectTarget.project_id.in_(project_ids), ProjectTarget.deleted_at.is_(None))
+            .group_by(ProjectTarget.project_id, ProjectTarget.category_type)
+        )).all()
+        for project_id, category, total, completed in target_summary_rows:
+            if category == CategoryType.scene:
+                scene_totals[project_id] = int(total or 0)
+                scene_completed[project_id] = int(completed or 0)
+            else:
+                white_totals[project_id] = int(total or 0)
+                white_completed[project_id] = int(completed or 0)
+
+        client_ids = list({project.client_id for project in project_rows})
+        if client_ids:
+            client_names = dict((await db.execute(
+                select(Client.id, Client.name).where(Client.id.in_(client_ids))
+            )).all())
+
+    projects_by_status: dict[str, list[dict]] = {status.value: [] for status in ProjectStatus}
+    for project in project_rows:
+        status_value = project.project_status.value if project.project_status else ProjectStatus.not_started.value
+        projects_by_status.setdefault(status_value, []).append({
+            "id": project.id,
+            "name": project.name,
+            "client_name": client_names.get(project.client_id, ""),
+            "cover_image": project.cover_image,
+            "project_status": status_value,
+            "status_label": PROJECT_STATUS_LABELS.get(project.project_status, ""),
+            "white_total": white_totals.get(project.id, 0),
+            "white_completed": white_completed.get(project.id, 0),
+            "scene_total": scene_totals.get(project.id, 0),
+            "scene_completed": scene_completed.get(project.id, 0),
+        })
+
     return {
         "project_status_distribution": distribution,
+        "projects_by_status": projects_by_status,
         "white_total": category_total["white"],
         "white_completed": category_completed["white"],
         "scene_total": category_total["scene"],

@@ -43,15 +43,19 @@
       <el-table-column prop="phone" label="联系电话" width="140">
         <template #default="{ row }">{{ row.phone || '-' }}</template>
       </el-table-column>
-      <el-table-column prop="project_total" label="项目合计" width="100" align="center" sortable />
+      <el-table-column prop="project_total" label="项目合计" width="100" align="center" sortable>
+        <template #default="{ row }">
+          <button class="count-link" :disabled="row.project_total === 0" @click.stop="openClientProjects(row, 'all')">{{ row.project_total }}</button>
+        </template>
+      </el-table-column>
       <el-table-column prop="active_projects" label="进行中" width="90" align="center">
         <template #default="{ row }">
-          <span :class="{ 'text-blue': row.active_projects > 0 }">{{ row.active_projects }}</span>
+          <button class="count-link text-blue" :disabled="row.active_projects === 0" @click.stop="openClientProjects(row, 'active')">{{ row.active_projects }}</button>
         </template>
       </el-table-column>
       <el-table-column prop="completed_projects" label="已完成" width="90" align="center">
         <template #default="{ row }">
-          <span :class="{ 'text-green': row.completed_projects > 0 }">{{ row.completed_projects }}</span>
+          <button class="count-link text-green" :disabled="row.completed_projects === 0" @click.stop="openClientProjects(row, 'completed')">{{ row.completed_projects }}</button>
         </template>
       </el-table-column>
       <el-table-column prop="total_amount" label="消费金额" width="110" align="right" sortable>
@@ -166,6 +170,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search } from '@element-plus/icons-vue'
 import type { FormInstance, FormRules } from 'element-plus'
@@ -199,6 +204,7 @@ interface BillingRule {
 }
 
 const userStore = useUserStore()
+const router = useRouter()
 const isSuperAdmin = computed(() => userStore.isSuperAdmin)
 const clients = ref<ClientItem[]>([])
 const loading = ref(false)
@@ -282,6 +288,14 @@ function onCommand(cmd: string, c: ClientItem) {
   } else if (cmd === 'billing') {
     openBillingRules(c)
   }
+}
+
+function openClientProjects(client: ClientItem, status: 'all' | 'active' | 'completed') {
+  router.push({
+    name: 'ClientProjects',
+    params: { clientId: client.id },
+    query: { status },
+  })
 }
 
 async function openBillingRules(c: ClientItem) {
@@ -474,6 +488,20 @@ onMounted(fetchClients)
 }
 .text-blue { color: #409eff; font-weight: 600; }
 .text-green { color: #67c23a; font-weight: 600; }
+.count-link {
+  border: 0;
+  background: transparent;
+  color: #303133;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.count-link:hover:not(:disabled) { text-decoration: underline; }
+.count-link:disabled {
+  color: #909399;
+  cursor: default;
+}
 .ctx-menu { min-width: 140px; padding: 4px 0; }
 .mi { display: flex; align-items: center; gap: 6px; font-size: 13px; }
 .mi-danger { color: #f56c6c; }

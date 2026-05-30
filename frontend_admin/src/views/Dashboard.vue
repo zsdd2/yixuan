@@ -1,7 +1,7 @@
 <template>
   <div class="min-h-screen">
     <!-- 顶部 Header -->
-    <div class="flex justify-between items-center mx-auto border-b border-gray-100" style="height: 82px; max-width: 1400px; padding: 0 32px;">
+    <div class="flex justify-between items-center border-b border-gray-100 dashboard-header">
       <h1 style="font-size: 28px;" class="font-bold text-gray-800 tracking-tight leading-none">进度工作台</h1>
       <div class="flex items-center gap-3">
         <el-checkbox v-model="showCompleted" @change="fetchProjects" label="显示已完成" />
@@ -16,7 +16,7 @@
     </div>
 
     <!-- 内容区 -->
-    <div class="mx-auto pt-4 pb-10" style="max-width: 1400px; padding-left: 32px; padding-right: 32px;">
+    <div class="pt-4 pb-10 dashboard-content">
 
     <!-- 骨架屏加载 -->
     <div v-if="loading" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
@@ -303,6 +303,16 @@ async function doQuickCreateClient() {
 </script>
 
 <style scoped>
+.dashboard-header {
+  height: 82px;
+  padding: 0 24px;
+}
+
+.dashboard-content {
+  padding-left: 24px;
+  padding-right: 32px;
+}
+
 .create-project-btn {
   display: inline-flex;
   align-items: center;

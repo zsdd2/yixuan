@@ -47,57 +47,97 @@
 
     <section class="panel work-panel">
       <div class="section-header">工作进度</div>
-      <div class="work-grid">
-        <div class="sub-panel">
+      <div class="work-flow-grid">
+        <div class="sub-panel status-flow-panel">
           <h3>项目状态分布</h3>
           <div ref="statusChartRef" class="chart status-chart"></div>
+          <div class="status-list">
+            <button
+              v-for="item in work.project_status_distribution"
+              :key="item.status"
+              class="status-row"
+              :class="{ active: selectedWorkStatus === item.status }"
+              @click="selectWorkStatus(item.status)"
+            >
+              <span class="status-dot" :style="{ background: statusColor(item.status) }"></span>
+              <span>{{ item.label }}</span>
+              <b>{{ item.count }} ({{ statusPercent(item.count) }}%)</b>
+            </button>
+          </div>
+          <div class="status-tip">点击状态可筛选项目列表</div>
         </div>
-        <div class="sub-panel progress-panel">
-          <h3>白图/场景图完成进度</h3>
-          <div class="progress-item">
-            <div class="progress-title">
-              <span>白图总数 / 完成数</span>
-              <b><em>{{ work.white_total }}</em> / {{ work.white_completed }}</b>
-              <small>完成率 {{ percent(work.white_completed, work.white_total) }}%</small>
+
+        <div class="sub-panel project-list-panel">
+          <h3>项目列表 <span>（{{ selectedStatusLabel }} · {{ selectedStatusProjects.length }} 个）</span></h3>
+          <div class="work-table">
+            <div class="work-table-head">
+              <span>项目名称</span>
+              <span>客户</span>
+              <span>白图进度</span>
+              <span>场景图进度</span>
+              <span>操作</span>
             </div>
-            <el-progress :percentage="percent(work.white_completed, work.white_total)" :show-text="false" />
-            <div class="progress-scale">
-              <span>0</span><span>{{ work.white_completed }}</span><span>{{ work.white_total }}</span>
+            <div
+              v-for="project in selectedStatusProjects"
+              :key="project.id"
+              class="work-table-row"
+              :class="{ active: selectedWorkProject?.id === project.id }"
+              @click="selectedWorkProjectId = project.id"
+            >
+              <span class="project-name-cell">{{ project.name }}</span>
+              <span>{{ project.client_name || '—' }}</span>
+              <span>
+                <b>{{ project.white_completed }} / {{ project.white_total }}</b>
+                <i><em :style="{ width: `${percent(project.white_completed, project.white_total)}%` }"></em></i>
+              </span>
+              <span>
+                <b>{{ project.scene_completed }} / {{ project.scene_total }}</b>
+                <i class="green"><em :style="{ width: `${percent(project.scene_completed, project.scene_total)}%` }"></em></i>
+              </span>
+              <button @click.stop="openProject(project.id)">查看</button>
             </div>
-          </div>
-          <div class="progress-item">
-            <div class="progress-title">
-              <span>场景图总数 / 完成数</span>
-              <b><em>{{ work.scene_total }}</em> / {{ work.scene_completed }}</b>
-              <small>完成率 {{ percent(work.scene_completed, work.scene_total) }}%</small>
-            </div>
-            <el-progress :percentage="percent(work.scene_completed, work.scene_total)" :show-text="false" />
-            <div class="progress-scale">
-              <span>0</span><span>{{ work.scene_completed }}</span><span>{{ work.scene_total }}</span>
-            </div>
+            <el-empty v-if="selectedStatusProjects.length === 0" description="暂无项目" :image-size="56" />
           </div>
         </div>
-        <div class="sub-panel stage-panel">
-          <h3>照片阶段统计</h3>
-          <div class="stage-row">
-            <div class="stage-item blue">
-              <div class="stage-icon"><el-icon><Picture /></el-icon></div>
-              <span>原图</span>
-              <b>{{ formatNumber(work.raw_photo_count) }}<small>张</small></b>
+
+        <div class="sub-panel current-project-panel">
+          <h3>白图/场景图进度 <span>（当前项目）</span></h3>
+          <div v-if="selectedWorkProject" class="current-card">
+            <div class="current-project-head">
+              <img v-if="selectedWorkProject.cover_image" :src="`/storage/${selectedWorkProject.cover_image}`" />
+              <div v-else class="current-cover-placeholder">{{ selectedWorkProject.name.charAt(0) }}</div>
+              <div>
+                <b>{{ selectedWorkProject.name }}</b>
+                <p>客户：{{ selectedWorkProject.client_name || '—' }}</p>
+              </div>
+              <span>
+                状态：<i :style="{ background: statusColor(selectedWorkProject.project_status) }"></i>{{ selectedWorkProject.status_label }}
+              </span>
             </div>
-            <div class="stage-divider"></div>
-            <div class="stage-item green">
-              <div class="stage-icon"><el-icon><MagicStick /></el-icon></div>
-              <span>精修图</span>
-              <b>{{ formatNumber(work.retouched_photo_count) }}<small>张</small></b>
+
+            <div class="current-progress-card">
+              <div class="current-progress-icon blue"><el-icon><Picture /></el-icon></div>
+              <div class="current-progress-copy">
+                <strong>白图进度</strong>
+                <span>已完成 / 总数</span>
+                <b>{{ selectedWorkProject.white_completed }} / {{ selectedWorkProject.white_total }}</b>
+              </div>
+              <div class="ring" :style="ringStyle(percent(selectedWorkProject.white_completed, selectedWorkProject.white_total), '#1265e8')">{{ percent(selectedWorkProject.white_completed, selectedWorkProject.white_total) }}%<small>完成率</small></div>
+              <el-progress :percentage="percent(selectedWorkProject.white_completed, selectedWorkProject.white_total)" :show-text="false" />
             </div>
-            <div class="stage-divider"></div>
-            <div class="stage-item purple">
-              <div class="stage-icon"><el-icon><PictureFilled /></el-icon></div>
-              <span>最终图</span>
-              <b>{{ formatNumber(work.final_photo_count) }}<small>张</small></b>
+
+            <div class="current-progress-card">
+              <div class="current-progress-icon green"><el-icon><Box /></el-icon></div>
+              <div class="current-progress-copy">
+                <strong>场景图进度</strong>
+                <span>已完成 / 总数</span>
+                <b>{{ selectedWorkProject.scene_completed }} / {{ selectedWorkProject.scene_total }}</b>
+              </div>
+              <div class="ring" :style="ringStyle(percent(selectedWorkProject.scene_completed, selectedWorkProject.scene_total), '#19a974')">{{ percent(selectedWorkProject.scene_completed, selectedWorkProject.scene_total) }}%<small>完成率</small></div>
+              <el-progress :percentage="percent(selectedWorkProject.scene_completed, selectedWorkProject.scene_total)" :show-text="false" />
             </div>
           </div>
+          <el-empty v-else description="请在中间选择项目" :image-size="64" />
         </div>
       </div>
     </section>
@@ -129,7 +169,7 @@
             </thead>
             <tbody>
               <tr v-for="(row, index) in clientBusiness.consumption_ranking" :key="row.client_id">
-                <td>{{ index + 1 }}　{{ row.client_name }}</td>
+                <td><button class="client-link" @click="openClientProjects(row.client_id)">{{ index + 1 }}　{{ row.client_name }}</button></td>
                 <td>{{ row.project_count }}</td>
                 <td>¥{{ formatNumber(row.receivable_amount) }}</td>
                 <td>¥{{ formatNumber(row.received_amount) }}</td>
@@ -153,7 +193,7 @@
             </thead>
             <tbody>
               <tr v-for="(row, index) in clientBusiness.output_ranking" :key="row.client_id">
-                <td>{{ index + 1 }}　{{ row.client_name }}</td>
+                <td><button class="client-link" @click="openClientProjects(row.client_id)">{{ index + 1 }}　{{ row.client_name }}</button></td>
                 <td>{{ formatNumber(row.final_photo_count) }}</td>
                 <td>{{ formatNumber(row.white_final_count) }}</td>
                 <td>{{ formatNumber(row.scene_final_count) }}</td>
@@ -188,13 +228,13 @@
 import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import type { Component } from 'vue'
 import type { ECharts } from 'echarts/core'
+import { useRouter } from 'vue-router'
 import {
+  Box,
   Clock,
   FolderChecked,
-  MagicStick,
   Money,
   Picture,
-  PictureFilled,
   Refresh,
   Wallet,
   Warning,
@@ -221,8 +261,9 @@ interface CompassData {
     unreceived_amount: OverviewMetric
   }
   work_progress: {
-    project_status_distribution: { status: string; label: string; count: number }[]
-    white_total: number
+      project_status_distribution: { status: string; label: string; count: number }[]
+      projects_by_status: Record<string, WorkProject[]>
+      white_total: number
     white_completed: number
     scene_total: number
     scene_completed: number
@@ -271,7 +312,21 @@ interface CompassData {
   }
 }
 
+interface WorkProject {
+  id: number
+  name: string
+  client_name: string
+  cover_image: string | null
+  project_status: string
+  status_label: string
+  white_total: number
+  white_completed: number
+  scene_total: number
+  scene_completed: number
+}
+
 const now = new Date()
+const router = useRouter()
 const yearOptions = Array.from({ length: 7 }, (_, i) => now.getFullYear() - 4 + i)
 const loading = ref(false)
 const filter = reactive({
@@ -292,6 +347,7 @@ const overview = reactive<CompassData['overview']>({
 })
 const work = reactive<CompassData['work_progress']>({
   project_status_distribution: [],
+  projects_by_status: {},
   white_total: 0,
   white_completed: 0,
   scene_total: 0,
@@ -313,6 +369,8 @@ const clientBusiness = reactive<CompassData['client_business']>({
 const statusChartRef = ref<HTMLDivElement>()
 const outputChartRef = ref<HTMLDivElement>()
 const incomeChartRef = ref<HTMLDivElement>()
+const selectedWorkStatus = ref('shooting')
+const selectedWorkProjectId = ref<number | null>(null)
 let statusChart: ChartInstance = null
 let outputChart: ChartInstance = null
 let incomeChart: ChartInstance = null
@@ -356,6 +414,7 @@ async function fetchCompass() {
     Object.assign(annual.monthly_output, data.annual_trends.monthly_output)
     Object.assign(annual.monthly_income, data.annual_trends.monthly_income)
     Object.assign(clientBusiness, data.client_business)
+    normalizeWorkSelection()
     await nextTick()
     await renderCharts()
   } catch (e: any) {
@@ -363,6 +422,63 @@ async function fetchCompass() {
   } finally {
     loading.value = false
   }
+}
+
+const totalWorkProjects = computed(() =>
+  work.project_status_distribution.reduce((sum, item) => sum + item.count, 0),
+)
+
+const selectedStatusProjects = computed<WorkProject[]>(() =>
+  work.projects_by_status[selectedWorkStatus.value] || [],
+)
+
+const selectedStatusLabel = computed(() =>
+  work.project_status_distribution.find(item => item.status === selectedWorkStatus.value)?.label || '项目',
+)
+
+const selectedWorkProject = computed(() =>
+  selectedStatusProjects.value.find(item => item.id === selectedWorkProjectId.value) || selectedStatusProjects.value[0] || null,
+)
+
+function normalizeWorkSelection() {
+  const currentList = work.projects_by_status[selectedWorkStatus.value] || []
+  if (currentList.length === 0) {
+    const first = work.project_status_distribution.find(item => item.count > 0)
+    selectedWorkStatus.value = first?.status || 'shooting'
+  }
+  const list = work.projects_by_status[selectedWorkStatus.value] || []
+  if (!list.some(item => item.id === selectedWorkProjectId.value)) {
+    selectedWorkProjectId.value = list[0]?.id || null
+  }
+}
+
+function selectWorkStatus(status: string) {
+  selectedWorkStatus.value = status
+  selectedWorkProjectId.value = selectedStatusProjects.value[0]?.id || null
+}
+
+function statusPercent(count: number) {
+  if (!totalWorkProjects.value) return '0.0'
+  return ((count / totalWorkProjects.value) * 100).toFixed(1)
+}
+
+function statusColor(status: string) {
+  const map: Record<string, string> = {
+    not_started: '#98a2b3',
+    shooting: '#1976ff',
+    retouching: '#ff9718',
+    client_review: '#18b979',
+    completed: '#7257f2',
+  }
+  return map[status] || '#98a2b3'
+}
+
+function openProject(projectId: number) {
+  router.push({ name: 'ProjectDetail', params: { id: projectId } })
+}
+
+function openClientProjects(clientId: number) {
+  router.push({ name: 'ClientProjects', params: { clientId }, query: { status: 'all' } })
 }
 
 async function ensureChartCore() {
@@ -434,6 +550,11 @@ function renderStatusChart() {
       data,
     }],
   })
+  statusChart.off('click')
+  statusChart.on('click', (params: any) => {
+    const match = work.project_status_distribution.find(item => item.label === params.name)
+    if (match) selectWorkStatus(match.status)
+  })
 }
 
 function renderOutputChart() {
@@ -481,6 +602,10 @@ function renderIncomeChart() {
 function percent(done: number, total: number) {
   if (!total) return 0
   return Math.round((done / total) * 1000) / 10
+}
+
+function ringStyle(value: number, color: string) {
+  return { background: `conic-gradient(${color} ${value}%, #e8eef6 0)` }
 }
 
 function formatNumber(value: number | string) {
@@ -639,9 +764,15 @@ onBeforeUnmount(() => {
   border-bottom: 1px solid #d7e0ea;
 }
 
-.work-grid {
+.work-grid,
+.work-flow-grid {
   display: grid;
   grid-template-columns: 1.05fr 0.95fr 1.1fr;
+}
+
+.work-flow-grid {
+  grid-template-columns: 0.92fr 1.06fr 1fr;
+  min-height: 294px;
 }
 
 .trend-grid,
@@ -676,6 +807,241 @@ onBeforeUnmount(() => {
 
 .chart { width: 100%; }
 .status-chart { height: 216px; }
+.status-flow-panel {
+  display: grid;
+  grid-template-columns: 1.05fr 0.95fr;
+  grid-template-rows: auto 1fr auto;
+  gap: 0 14px;
+}
+.status-flow-panel h3 {
+  grid-column: 1 / -1;
+}
+.status-flow-panel .status-chart {
+  height: 210px;
+}
+.status-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 12px;
+}
+.status-row {
+  height: 34px;
+  display: grid;
+  grid-template-columns: 12px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  border-radius: 6px;
+  padding: 0 10px;
+  background: transparent;
+  color: #475467;
+  cursor: pointer;
+}
+.status-row.active {
+  color: #1265e8;
+  background: #eaf3ff;
+}
+.status-row b {
+  font-size: 13px;
+  font-weight: 800;
+}
+.status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+}
+.status-tip {
+  grid-column: 1 / -1;
+  margin-top: 4px;
+  text-align: center;
+  color: #98a2b3;
+  font-size: 12px;
+}
+.project-list-panel h3,
+.current-project-panel h3 {
+  height: 26px;
+}
+.work-table {
+  border: 1px solid #edf1f6;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.work-table-head,
+.work-table-row {
+  display: grid;
+  grid-template-columns: 1.35fr 0.85fr 1fr 1fr 54px;
+  gap: 10px;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 12px;
+}
+.work-table-head {
+  color: #667085;
+  background: #f7f9fc;
+  font-size: 12px;
+  font-weight: 800;
+}
+.work-table-row {
+  border-top: 1px solid #edf1f6;
+  color: #344054;
+  font-size: 13px;
+  cursor: pointer;
+}
+.work-table-row.active {
+  outline: 2px solid #2f7df6;
+  outline-offset: -2px;
+  background: #f8fbff;
+}
+.project-name-cell {
+  color: #1d2939;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.work-table-row b {
+  display: block;
+  margin-bottom: 4px;
+  color: #475467;
+}
+.work-table-row i {
+  display: block;
+  height: 4px;
+  border-radius: 999px;
+  background: #dce6f2;
+  overflow: hidden;
+}
+.work-table-row i em {
+  display: block;
+  height: 100%;
+  background: #1265e8;
+}
+.work-table-row i.green em {
+  background: #19a974;
+}
+.work-table-row button {
+  height: 26px;
+  border: 1px solid #83b7ff;
+  border-radius: 5px;
+  color: #1265e8;
+  background: #fff;
+  cursor: pointer;
+}
+.current-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.current-project-head {
+  display: grid;
+  grid-template-columns: 92px 1fr auto;
+  gap: 14px;
+  align-items: center;
+  min-height: 82px;
+  padding: 10px;
+  border: 1px solid #edf1f6;
+  border-radius: 8px;
+}
+.current-project-head img,
+.current-cover-placeholder {
+  width: 92px;
+  height: 60px;
+  border-radius: 6px;
+}
+.current-project-head img {
+  object-fit: cover;
+}
+.current-cover-placeholder {
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: #8aa4c3;
+  font-weight: 900;
+}
+.current-project-head b {
+  display: block;
+  color: #1d2939;
+  font-size: 16px;
+}
+.current-project-head p {
+  margin: 8px 0 0;
+  color: #667085;
+  font-size: 13px;
+}
+.current-project-head span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #475467;
+  font-size: 13px;
+}
+.current-project-head i {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+}
+.current-progress-card {
+  display: grid;
+  grid-template-columns: 58px 1fr 62px 1.5fr;
+  gap: 14px;
+  align-items: center;
+  min-height: 76px;
+  padding: 10px 14px;
+  border: 1px solid #edf1f6;
+  border-radius: 8px;
+}
+.current-progress-icon {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  color: #1265e8;
+  background: #eaf3ff;
+}
+.current-progress-icon.green {
+  color: #19a974;
+  background: #e3f8ee;
+}
+.current-progress-icon .el-icon {
+  font-size: 28px;
+}
+.current-progress-copy strong {
+  display: block;
+  color: #1d2939;
+  font-weight: 900;
+}
+.current-progress-copy span {
+  display: block;
+  margin: 3px 0;
+  color: #667085;
+  font-size: 12px;
+}
+.current-progress-copy b {
+  color: #1265e8;
+  font-size: 22px;
+}
+.ring {
+  width: 54px;
+  height: 54px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  color: #1d2939;
+  font-size: 14px;
+  font-weight: 900;
+  background: conic-gradient(#1265e8 40%, #e8eef6 0);
+}
+.ring small {
+  display: block;
+  margin-top: -12px;
+  font-size: 9px;
+  color: #667085;
+}
+.green-ring {
+  background: conic-gradient(#19a974 40%, #e8eef6 0);
+}
 .trend-chart { height: 244px; }
 
 .progress-panel {
@@ -783,6 +1149,18 @@ onBeforeUnmount(() => {
 
 .table-panel .danger {
   color: #ff4b2c;
+}
+.client-link {
+  border: 0;
+  padding: 0;
+  color: #1d2939;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+.client-link:hover {
+  color: #1265e8;
+  text-decoration: underline;
 }
 
 .table-more {
