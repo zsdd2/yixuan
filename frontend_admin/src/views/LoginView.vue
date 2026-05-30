@@ -24,7 +24,7 @@ const handleLogin = async () => {
   try {
     await userStore.login(form.value.username, form.value.password)
     ElMessage.success(`欢迎回来，${userStore.userInfo?.display_name}`)
-    router.push('/')
+    router.push('/analytics')
   } catch (error: any) {
     ElMessage.error(error.message || '登录失败')
   } finally {

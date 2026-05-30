@@ -42,68 +42,97 @@
       <div class="billing-section">
         <div class="section-title">
           <h3>最终成图计费</h3>
-          <span>制作类型从客户计费规则带出价格，可按单张手动改价</span>
+          <span>白图和场景图分开汇总，拖动行可调整当前页面展示顺序</span>
         </div>
-        <el-table :data="autoItems" border stripe empty-text="暂无最终成图计费">
-          <el-table-column label="图片" width="92" align="center">
-            <template #default="{ row }">
-              <el-image v-if="row.thumbnail_path" :src="storageUrl(row.thumbnail_path)" fit="cover" class="thumb" lazy />
-              <div v-else class="thumb empty">#{{ row.display_id || '-' }}</div>
-            </template>
-          </el-table-column>
-          <el-table-column label="编号" width="80">
-            <template #default="{ row }">#{{ row.display_id || '-' }}</template>
-          </el-table-column>
-          <el-table-column prop="target_name" label="子项目" min-width="140" show-overflow-tooltip />
-          <el-table-column label="基础分类" width="100">
-            <template #default="{ row }">{{ categoryLabel(row.base_category_type) }}</template>
-          </el-table-column>
-          <el-table-column label="制作类型" width="170">
-            <template #default="{ row }">
-              <el-select
-                v-model="row.production_type"
-                size="small"
-                :disabled="readonly"
-                @change="onProductionChange(row)"
-              >
-                <el-option
-                  v-for="rule in rulesFor(row)"
-                  :key="`${rule.base_category_type}-${rule.production_type}`"
-                  :label="rule.production_name"
-                  :value="rule.production_type"
-                />
-              </el-select>
-            </template>
-          </el-table-column>
-          <el-table-column label="单价" width="130">
-            <template #default="{ row }">
-              <el-input-number v-model="row.unit_price" :disabled="readonly" :min="0" :precision="2" :step="10" size="small" controls-position="right" />
-            </template>
-          </el-table-column>
-          <el-table-column label="数量" width="110">
-            <template #default="{ row }">
-              <el-input-number v-model="row.quantity" :disabled="readonly" :min="0.01" :precision="2" :step="1" size="small" controls-position="right" />
-            </template>
-          </el-table-column>
-          <el-table-column label="计费" width="90" align="center">
-            <template #default="{ row }">
-              <el-switch v-model="row.is_excluded" :disabled="readonly" :active-value="false" :inactive-value="true" />
-            </template>
-          </el-table-column>
-          <el-table-column label="小计" width="110" align="right">
-            <template #default="{ row }">¥{{ money(row.is_excluded ? 0 : row.quantity * row.unit_price) }}</template>
-          </el-table-column>
-          <el-table-column label="备注" min-width="160">
-            <template #default="{ row }">
-              <el-input v-model="row.notes" :disabled="readonly" size="small" placeholder="可为空" />
-            </template>
-          </el-table-column>
-          <el-table-column v-if="!readonly" label="操作" width="90" fixed="right">
-            <template #default="{ row }">
-              <el-button type="primary" link @click="saveItem(row)">保存</el-button>
-            </template>
-          </el-table-column>
-        </el-table>
+        <el-empty v-if="autoItems.length === 0" description="暂无最终成图计费" />
+        <div v-else class="billing-category-list">
+          <div
+            v-for="category in billingCategories"
+            :key="category.type"
+            class="billing-category-card"
+          >
+            <div class="category-head">
+              <div>
+                <h4>{{ category.label }}</h4>
+                <p>{{ categorySummary(category.type) }}</p>
+              </div>
+              <b>¥{{ money(categoryAmount(category.type)) }}</b>
+            </div>
+            <div class="billing-table-wrap">
+              <table class="billing-table">
+                <thead>
+                  <tr>
+                    <th class="col-index">序号</th>
+                    <th class="col-drag">排序</th>
+                    <th class="col-thumb">图片</th>
+                    <th class="col-code">编号</th>
+                    <th>子项目</th>
+                    <th class="col-production">制作类型</th>
+                    <th class="col-price">单价</th>
+                    <th class="col-quantity">数量</th>
+                    <th class="col-billable">计费</th>
+                    <th class="col-amount">小计</th>
+                    <th>备注</th>
+                    <th v-if="!readonly" class="col-action">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="(row, index) in orderedAutoItems(category.type)"
+                    :key="row.id"
+                    :draggable="!readonly"
+                    @dragstart="onDragStart(row)"
+                    @dragover.prevent
+                    @drop="onDrop(row, category.type)"
+                  >
+                    <td class="col-index">{{ index + 1 }}</td>
+                    <td class="col-drag"><span class="drag-handle" :class="{ disabled: readonly }">☰</span></td>
+                    <td class="col-thumb">
+                      <el-image v-if="row.thumbnail_path" :src="storageUrl(row.thumbnail_path)" fit="cover" class="thumb" lazy />
+                      <div v-else class="thumb empty">#{{ row.display_id || '-' }}</div>
+                    </td>
+                    <td class="col-code">#{{ row.display_id || '-' }}</td>
+                    <td class="target-name">{{ row.target_name || '-' }}</td>
+                    <td class="col-production">
+                      <el-select
+                        v-model="row.production_name"
+                        size="small"
+                        :disabled="readonly"
+                        @change="onProductionChange(row)"
+                      >
+                        <el-option
+                          v-for="rule in rulesFor(row)"
+                          :key="`${rule.id}-${rule.production_name}`"
+                          :label="rule.production_name"
+                          :value="rule.production_name"
+                        />
+                      </el-select>
+                    </td>
+                    <td class="col-price">
+                      <el-input-number v-model="row.unit_price" :disabled="readonly" :min="0" :precision="2" :step="10" size="small" controls-position="right" />
+                    </td>
+                    <td class="col-quantity">
+                      <el-input-number v-model="row.quantity" :disabled="readonly" :min="0.01" :precision="2" :step="1" size="small" controls-position="right" />
+                    </td>
+                    <td class="col-billable">
+                      <el-switch v-model="row.is_excluded" :disabled="readonly" :active-value="false" :inactive-value="true" />
+                    </td>
+                    <td class="col-amount">¥{{ money(row.is_excluded ? 0 : row.quantity * row.unit_price) }}</td>
+                    <td>
+                      <el-input v-model="row.notes" :disabled="readonly" size="small" placeholder="可为空" />
+                    </td>
+                    <td v-if="!readonly" class="col-action">
+                      <el-button type="primary" link @click="saveItem(row)">保存</el-button>
+                    </td>
+                  </tr>
+                  <tr v-if="orderedAutoItems(category.type).length === 0">
+                    <td :colspan="readonly ? 11 : 12" class="empty-row">暂无{{ category.label }}计费</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div class="billing-section">
@@ -235,6 +264,12 @@ const manualForm = reactive({
   unit_price: 0,
   notes: '',
 })
+const displayOrder = ref<Record<number, number>>({})
+const dragItemId = ref<number | null>(null)
+const billingCategories = [
+  { type: 'white', label: '白图' },
+  { type: 'scene', label: '场景图' },
+]
 
 const billingStatusLabel: Record<string, string> = {
   draft: '草稿',
@@ -258,6 +293,60 @@ function applyResponse(res: any) {
   data.items = res.items || []
   data.price_rules = res.price_rules || []
   data.final_photo_count = res.final_photo_count || 0
+  syncDisplayOrder()
+}
+
+function syncDisplayOrder() {
+  const next = { ...displayOrder.value }
+  autoItems.value.forEach((item, index) => {
+    if (next[item.id] === undefined) next[item.id] = index
+  })
+  displayOrder.value = next
+}
+
+function orderedAutoItems(category: string) {
+  return autoItems.value
+    .filter(item => item.base_category_type === category)
+    .sort((a, b) => (displayOrder.value[a.id] ?? 0) - (displayOrder.value[b.id] ?? 0) || a.id - b.id)
+}
+
+function onDragStart(row: BillingItem) {
+  if (readonly.value) return
+  dragItemId.value = row.id
+}
+
+function onDrop(target: BillingItem, category: string) {
+  if (readonly.value || dragItemId.value === null || dragItemId.value === target.id) return
+  const rows = orderedAutoItems(category)
+  const from = rows.findIndex(item => item.id === dragItemId.value)
+  const to = rows.findIndex(item => item.id === target.id)
+  if (from < 0 || to < 0) return
+  const [moving] = rows.splice(from, 1)
+  rows.splice(to, 0, moving)
+  const next = { ...displayOrder.value }
+  rows.forEach((item, index) => {
+    next[item.id] = index
+  })
+  displayOrder.value = next
+  dragItemId.value = null
+}
+
+function categoryAmount(category: string) {
+  return orderedAutoItems(category).reduce((sum, item) => (
+    sum + (item.is_excluded ? 0 : Number(item.quantity || 0) * Number(item.unit_price || 0))
+  ), 0)
+}
+
+function categorySummary(category: string) {
+  const label = categoryLabel(category)
+  const rows = orderedAutoItems(category)
+  if (rows.length === 0) return `${label}--暂无成图`
+  const groups = new Map<string, number>()
+  rows.forEach(row => {
+    const name = row.production_name || '未设置类型'
+    groups.set(name, (groups.get(name) || 0) + Number(row.quantity || 0))
+  })
+  return `${label}--${Array.from(groups.entries()).map(([name, count]) => `${name}${formatQuantity(count)}张`).join('，')}`
 }
 
 async function fetchBilling() {
@@ -294,9 +383,9 @@ function categoryLabel(type: string) {
 function rulesFor(row: BillingItem) {
   const rules = data.price_rules.filter(rule =>
     rule.base_category_type === row.base_category_type &&
-    (rule.is_active || rule.production_type === row.production_type)
+    (rule.is_active || rule.production_name === row.production_name)
   )
-  if (rules.some(rule => rule.production_type === row.production_type)) return rules
+  if (rules.some(rule => rule.production_name === row.production_name)) return rules
   return [
     ...rules,
     {
@@ -314,9 +403,11 @@ function rulesFor(row: BillingItem) {
 function onProductionChange(row: BillingItem) {
   const rule = data.price_rules.find(item =>
     item.base_category_type === row.base_category_type &&
-    item.production_type === row.production_type
+    item.production_name === row.production_name
   )
   if (!rule) return
+  row.base_category_type = rule.base_category_type
+  row.production_type = rule.production_type
   row.production_name = rule.production_name
   row.unit_price = rule.unit_price
 }
@@ -397,6 +488,11 @@ function money(value: number): string {
   return Number(value || 0).toFixed(2)
 }
 
+function formatQuantity(value: number): string {
+  const fixed = Number(value || 0).toFixed(2)
+  return fixed.endsWith('.00') ? String(Math.trunc(Number(value || 0))) : fixed.replace(/0$/, '')
+}
+
 function formatDate(iso: string): string {
   const d = new Date(iso)
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -422,6 +518,31 @@ onMounted(fetchBilling)
 .section-title { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 .section-title h3 { margin: 0; font-size: 16px; color: #1f2d3d; }
 .section-title span { color: #8a94a6; font-size: 13px; }
+.billing-category-list { display: flex; flex-direction: column; gap: 14px; }
+.billing-category-card { border: 1px solid #e5eaf2; border-radius: 8px; overflow: hidden; background: #fbfdff; }
+.category-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 14px; border-bottom: 1px solid #e5eaf2; background: #f8fbff; }
+.category-head h4 { margin: 0 0 4px; color: #1f2d3d; font-size: 15px; }
+.category-head p { margin: 0; color: #64748b; font-size: 12px; }
+.category-head b { color: #1677ff; font-size: 18px; white-space: nowrap; }
+.billing-table-wrap { overflow-x: auto; background: #fff; }
+.billing-table { width: 100%; min-width: 1120px; border-collapse: collapse; font-size: 13px; }
+.billing-table th { height: 40px; padding: 0 10px; color: #475467; background: #f7f9fc; border-bottom: 1px solid #e5e7eb; text-align: left; font-weight: 700; }
+.billing-table td { padding: 8px 10px; border-bottom: 1px solid #eef2f6; vertical-align: middle; color: #1f2937; }
+.billing-table tbody tr:hover { background: #f9fbff; }
+.col-index { width: 58px; text-align: center !important; }
+.col-drag { width: 54px; text-align: center !important; }
+.col-thumb { width: 86px; text-align: center !important; }
+.col-code { width: 76px; white-space: nowrap; }
+.col-production { width: 170px; }
+.col-price { width: 128px; }
+.col-quantity { width: 108px; }
+.col-billable { width: 76px; text-align: center !important; }
+.col-amount { width: 110px; text-align: right !important; white-space: nowrap; }
+.col-action { width: 76px; text-align: center !important; }
+.target-name { min-width: 120px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.drag-handle { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; color: #7b8797; cursor: grab; user-select: none; }
+.drag-handle.disabled { cursor: default; opacity: 0.35; }
+.empty-row { height: 54px; color: #98a2b3 !important; text-align: center !important; }
 .thumb { width: 58px; height: 58px; border-radius: 6px; background: #f3f4f6; }
 .thumb.empty { display: flex; align-items: center; justify-content: center; color: #9ca3af; font-size: 12px; }
 @media (max-width: 1100px) {

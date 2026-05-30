@@ -36,8 +36,8 @@ from app.schemas.billing_schema import (
 router = APIRouter(prefix="/api/v1", tags=["billing"])
 
 DEFAULT_RULES = (
-    ("white", "normal", "默认制作"),
-    ("scene", "normal", "默认制作"),
+    ("white", "normal", "默认白图"),
+    ("scene", "normal", "默认场景图"),
 )
 READABLE_BILLING_STATUS = {"confirmed", "paid"}
 
@@ -111,10 +111,13 @@ async def _price_rules_for_client(db: AsyncSession, client_id: int) -> list[Bill
         .order_by(BillingPriceRule.base_category_type, BillingPriceRule.is_default.desc(), BillingPriceRule.id)
     )).scalars().all()
 
-    existing_keys = {(rule.base_category_type, rule.production_type) for rule in rules}
+    existing_default_categories = {
+        rule.base_category_type for rule in rules if rule.is_default and rule.is_active
+    }
+    existing_names = {rule.production_name for rule in rules}
     defaults: list[BillingPriceRule] = []
     for base_category_type, production_type, production_name in DEFAULT_RULES:
-        if (base_category_type, production_type) not in existing_keys:
+        if base_category_type not in existing_default_categories and production_name not in existing_names:
             defaults.append(BillingPriceRule(
                 client_id=client_id,
                 base_category_type=base_category_type,
@@ -150,11 +153,26 @@ async def _default_rule_for_category(
         if rule.base_category_type == base_category_type and rule.is_active:
             return rule
 
+    default_name = "默认白图" if base_category_type == "white" else "默认场景图"
+    existing_default = await db.scalar(
+        select(BillingPriceRule).where(
+            BillingPriceRule.client_id == client_id,
+            BillingPriceRule.production_name == default_name,
+        )
+    )
+    if existing_default is not None:
+        existing_default.base_category_type = base_category_type
+        existing_default.production_type = existing_default.production_type or "normal"
+        existing_default.is_default = True
+        existing_default.is_active = True
+        await db.flush()
+        return existing_default
+
     rule = BillingPriceRule(
         client_id=client_id,
         base_category_type=base_category_type,
         production_type="normal",
-        production_name="默认制作",
+        production_name=default_name,
         unit_price=0,
         is_default=True,
         is_active=True,
@@ -175,6 +193,20 @@ async def _find_active_rule(
             BillingPriceRule.client_id == client_id,
             BillingPriceRule.base_category_type == base_category_type,
             BillingPriceRule.production_type == production_type,
+            BillingPriceRule.is_active.is_(True),
+        )
+    )
+
+
+async def _find_active_rule_by_name(
+    db: AsyncSession,
+    client_id: int,
+    production_name: str,
+) -> BillingPriceRule | None:
+    return await db.scalar(
+        select(BillingPriceRule).where(
+            BillingPriceRule.client_id == client_id,
+            BillingPriceRule.production_name == production_name,
             BillingPriceRule.is_active.is_(True),
         )
     )
@@ -366,11 +398,10 @@ async def create_billing_price_rule(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="客户不存在")
     existing = await db.scalar(select(BillingPriceRule).where(
         BillingPriceRule.client_id == client_id,
-        BillingPriceRule.base_category_type == body.base_category_type,
-        BillingPriceRule.production_type == body.production_type,
+        BillingPriceRule.production_name == body.production_name,
     ))
     if existing:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="该制作类型已存在")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="该制作名称已存在")
 
     if body.is_default:
         current_default = await db.execute(select(BillingPriceRule).where(
@@ -401,10 +432,21 @@ async def update_billing_price_rule(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="计费规则不存在")
 
     update_data = body.model_dump(exclude_unset=True)
+    new_name = update_data.get("production_name")
+    if new_name is not None:
+        existing = await db.scalar(select(BillingPriceRule).where(
+            BillingPriceRule.client_id == client_id,
+            BillingPriceRule.production_name == new_name,
+            BillingPriceRule.id != rule.id,
+        ))
+        if existing:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="该制作名称已存在")
+
     if update_data.get("is_default") is True:
+        category_for_default = update_data.get("base_category_type", rule.base_category_type)
         current_default = await db.execute(select(BillingPriceRule).where(
             BillingPriceRule.client_id == client_id,
-            BillingPriceRule.base_category_type == rule.base_category_type,
+            BillingPriceRule.base_category_type == category_for_default,
             BillingPriceRule.id != rule.id,
             BillingPriceRule.is_default.is_(True),
         ))
@@ -434,8 +476,7 @@ async def delete_billing_price_rule(
         .join(Project, ProjectBillingItem.project_id == Project.id)
         .where(
             Project.client_id == client_id,
-            ProjectBillingItem.base_category_type == rule.base_category_type,
-            ProjectBillingItem.production_type == rule.production_type,
+            ProjectBillingItem.production_name == rule.production_name,
         )
         .limit(1)
     )
@@ -536,7 +577,14 @@ async def update_project_billing_item(
     for field, value in update_data.items():
         setattr(item, field, value)
 
-    if "base_category_type" in update_data or "production_type" in update_data:
+    if "production_name" in update_data:
+        rule = await _find_active_rule_by_name(db, project.client_id, item.production_name)
+        if rule is not None:
+            item.base_category_type = rule.base_category_type
+            item.production_type = rule.production_type
+            if not explicit_unit_price:
+                item.unit_price = _money(rule.unit_price)
+    elif "base_category_type" in update_data or "production_type" in update_data:
         rule = await _find_active_rule(db, project.client_id, item.base_category_type, item.production_type)
         if rule is not None:
             if not explicit_production_name:

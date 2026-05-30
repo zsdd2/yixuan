@@ -10,13 +10,13 @@
       </div>
 
       <nav class="nav">
-        <router-link to="/" class="nav-item" :class="{ active: $route.path === '/' }">
-          <el-icon><Monitor /></el-icon>
-          <span>进度工作台</span>
-        </router-link>
         <router-link to="/analytics" class="nav-item" :class="{ active: $route.path === '/analytics' }">
           <el-icon><DataAnalysis /></el-icon>
           <span>数据罗盘</span>
+        </router-link>
+        <router-link to="/dashboard" class="nav-item" :class="{ active: $route.path === '/dashboard' }">
+          <el-icon><Monitor /></el-icon>
+          <span>进度工作台</span>
         </router-link>
         <router-link to="/projects" class="nav-item" :class="{ active: $route.path === '/projects' }">
           <el-icon><Folder /></el-icon>

@@ -588,7 +588,8 @@ async def analytics_billing_projects(
         select(
             Project.id,
             Project.name,
-            Project.display_id,
+            Project.client_prefix,
+            Project.serial_number,
             Client.name.label("client_name"),
             ProjectBillingSummary.total_amount,
             ProjectBillingSummary.billing_status,
@@ -626,14 +627,14 @@ async def analytics_billing_projects(
         {
             "project_id": project_id,
             "project_name": project_name,
-            "project_display_id": display_id,
+            "project_display_id": f"{client_prefix or ''}{int(serial_number or 0):06d}",
             "client_name": client_name,
             "amount": _money(amount),
             "billing_status": billing_status,
             "confirmed_at": confirmed_at.isoformat() if confirmed_at else None,
             "paid_at": paid_at.isoformat() if paid_at else None,
         }
-        for project_id, project_name, display_id, client_name, amount, billing_status, confirmed_at, paid_at in rows
+        for project_id, project_name, client_prefix, serial_number, client_name, amount, billing_status, confirmed_at, paid_at in rows
     ]
     return {
         "year": year,

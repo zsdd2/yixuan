@@ -19,7 +19,7 @@
     <div class="pt-4 pb-10 dashboard-content">
 
     <!-- 骨架屏加载 -->
-    <div v-if="loading" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
+    <div v-if="loading" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 xl:grid-cols-6 gap-5">
       <div v-for="i in 8" :key="i" class="bg-white rounded-2xl overflow-hidden shadow-sm">
         <el-skeleton animated>
           <template #template>
@@ -56,7 +56,7 @@
     </div>
 
     <!-- 项目列表 4列 -->
-    <div v-else class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
+    <div v-else class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 xl:grid-cols-6 gap-5">
       <ProjectCard
         v-for="project in projects"
         :key="project.id"

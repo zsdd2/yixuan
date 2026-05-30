@@ -124,7 +124,7 @@
       <el-table :data="billingRules" border stripe empty-text="暂无计费规则">
         <el-table-column label="基础分类" width="120">
           <template #default="{ row }">
-            <el-select v-model="row.base_category_type" size="small" :disabled="!!row.id">
+            <el-select v-model="row.base_category_type" size="small">
               <el-option label="白图" value="white" />
               <el-option label="场景图" value="scene" />
             </el-select>
@@ -132,7 +132,7 @@
         </el-table-column>
         <el-table-column label="制作编码" width="150">
           <template #default="{ row }">
-            <el-input v-model="row.production_type" size="small" :disabled="!!row.id" placeholder="normal / 4k / hd" />
+            <el-input v-model="row.production_type" size="small" placeholder="normal / 4k / hd" />
           </template>
         </el-table-column>
         <el-table-column label="制作名称" min-width="160">
@@ -343,6 +343,8 @@ async function saveRule(rule: BillingRule) {
     }
     if (rule.id) {
       await request.patch(`/api/v1/clients/${billingClientId.value}/billing-rules/${rule.id}`, {
+        base_category_type: body.base_category_type,
+        production_type: body.production_type,
         production_name: body.production_name,
         unit_price: body.unit_price,
         is_default: body.is_default,

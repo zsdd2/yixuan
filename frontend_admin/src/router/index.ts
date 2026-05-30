@@ -13,6 +13,11 @@ const router = createRouter({
     },
     {
       path: '/',
+      redirect: '/analytics',
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/dashboard',
       name: 'Dashboard',
       component: () => import('../views/Dashboard.vue'),
       meta: { requiresAuth: true },
@@ -149,7 +154,7 @@ router.beforeEach((to, from, next) => {
   // 登录页：已登录用户重定向至首页
   if (to.path === '/login') {
     if (userStore.isAuthenticated) {
-      return next('/')
+      return next('/analytics')
     }
     return next()
   }

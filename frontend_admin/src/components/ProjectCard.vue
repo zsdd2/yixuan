@@ -327,7 +327,7 @@ async function confirmDelete() {
 .card-wrapper {
   position: relative;
   background: #FFFFFF;
-  border-radius: 20px;
+  border-radius: 14px;
   overflow: visible;
   cursor: pointer;
   transition: all 0.3s ease;
@@ -342,13 +342,13 @@ async function confirmDelete() {
 /* 倒计时 */
 .card-countdown {
   position: absolute;
-  top: 12px;
-  left: 12px;
+  top: 8px;
+  left: 8px;
   z-index: 10;
   font-size: 11px;
   font-weight: 600;
-  padding: 3px 10px;
-  border-radius: 8px;
+  padding: 2px 8px;
+  border-radius: 7px;
   backdrop-filter: blur(8px);
 }
 .countdown-safe { background: rgba(255,255,255,0.4); color: #059669; backdrop-filter: blur(4px); }
@@ -358,15 +358,15 @@ async function confirmDelete() {
 /* 三点菜单 */
 .card-more-wrap {
   position: absolute;
-  top: 12px;
-  right: 12px;
+  top: 8px;
+  right: 8px;
   z-index: 10;
 }
 
 .card-more-btn {
-  width: 32px;
-  height: 32px;
-  border-radius: 10px;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
   border: none;
   background: rgba(255,255,255,0.85);
   backdrop-filter: blur(8px);
@@ -389,7 +389,7 @@ async function confirmDelete() {
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  border-radius: 20px 20px 0 0;
+  border-radius: 14px 14px 0 0;
 }
 .placeholder { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
 .placeholder-icon { width: 44px; height: 44px; color: #D1D5DB; }
@@ -399,11 +399,11 @@ async function confirmDelete() {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  padding: 18px 20px 0;
-  gap: 8px;
+  padding: 12px 14px 0;
+  gap: 6px;
 }
 .card-title {
-  font-size: 17px;
+  font-size: 14px;
   font-weight: 700;
   color: #111827;
   line-height: 1.3;
@@ -413,17 +413,17 @@ async function confirmDelete() {
   min-width: 0;
 }
 .card-photo-count {
-  font-size: 12px;
+  font-size: 11px;
   color: #9CA3AF;
   white-space: nowrap;
   flex-shrink: 0;
 }
 
 .project-status-badge {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
-  padding: 2px 8px;
-  border-radius: 8px;
+  padding: 2px 7px;
+  border-radius: 7px;
   white-space: nowrap;
   flex-shrink: 0;
 }
@@ -434,8 +434,8 @@ async function confirmDelete() {
 
 /* 创建信息 */
 .card-meta {
-  padding: 4px 20px 0;
-  font-size: 13px;
+  padding: 3px 14px 0;
+  font-size: 11px;
   color: #9CA3AF;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -444,27 +444,27 @@ async function confirmDelete() {
 
 /* 白图/场景图指标 */
 .card-metrics {
-  padding: 14px 20px 20px;
+  padding: 10px 14px 14px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 7px;
 }
 
 .metric-row {
   display: grid;
-  grid-template-columns: 48px 44px 1fr;
+  grid-template-columns: 42px 38px 1fr;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
 .metric-label {
-  font-size: 12px;
+  font-size: 11px;
   color: #6B7280;
   font-weight: 500;
 }
 
 .metric-value {
-  font-size: 12px;
+  font-size: 11px;
   color: #9CA3AF;
   text-align: right;
   font-variant-numeric: tabular-nums;

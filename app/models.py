@@ -394,7 +394,7 @@ class Photo(Base):
 class BillingPriceRule(Base):
     __tablename__ = "billing_price_rules"
     __table_args__ = (
-        UniqueConstraint("client_id", "base_category_type", "production_type", name="uq_billing_price_client_production"),
+        UniqueConstraint("client_id", "production_name", name="uq_billing_price_client_production_name"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)

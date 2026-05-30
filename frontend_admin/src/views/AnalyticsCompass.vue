@@ -218,10 +218,22 @@
         </div>
         <div class="sub-panel table-panel">
           <h3>
-            <span class="tab-active">客户产出排行</span>
-            <button class="tab-muted" @click="openBusinessModal('projects')">客户项目数排行</button>
+            <button
+              type="button"
+              :class="outputRankingMode === 'output' ? 'tab-active tab-button' : 'tab-muted'"
+              @click="outputRankingMode = 'output'"
+            >
+              客户产出排行
+            </button>
+            <button
+              type="button"
+              :class="outputRankingMode === 'projects' ? 'tab-active tab-button' : 'tab-muted'"
+              @click="outputRankingMode = 'projects'"
+            >
+              客户项目数排行
+            </button>
           </h3>
-          <table>
+          <table v-if="outputRankingMode === 'output'">
             <thead>
               <tr>
                 <th>客户名称</th><th>最终成图数</th><th>白图最终图</th><th>场景图最终图</th>
@@ -237,7 +249,23 @@
               <tr v-if="clientBusiness.output_ranking.length === 0"><td colspan="4" class="empty">暂无数据</td></tr>
             </tbody>
           </table>
-          <button class="table-more" @click="openBusinessModal('output')">查看全部 〉</button>
+          <table v-else>
+            <thead>
+              <tr>
+                <th>客户名称</th><th>项目数</th><th>应收金额</th><th>未收金额</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(row, index) in projectRankingRows" :key="row.client_id">
+                <td><button class="client-link" @click="openClientProjects(row.client_id)">{{ index + 1 }}　{{ row.client_name }}</button></td>
+                <td>{{ row.project_count }}</td>
+                <td>¥{{ formatNumber(row.receivable_amount) }}</td>
+                <td class="danger">¥{{ formatNumber(row.unreceived_amount) }}</td>
+              </tr>
+              <tr v-if="projectRankingRows.length === 0"><td colspan="4" class="empty">暂无数据</td></tr>
+            </tbody>
+          </table>
+          <button class="table-more" @click="openBusinessModal(outputRankingMode === 'projects' ? 'projects' : 'output')">查看全部 〉</button>
         </div>
         <div class="sub-panel alert-panel">
           <h3>未收款提醒 <button @click="openBusinessModal('alerts')">更多〉</button></h3>
@@ -464,6 +492,7 @@ const outputChartRef = ref<HTMLDivElement>()
 const incomeChartRef = ref<HTMLDivElement>()
 const selectedWorkStatus = ref('shooting')
 const selectedWorkProjectId = ref<number | null>(null)
+const outputRankingMode = ref<'output' | 'projects'>('output')
 const billingModal = reactive({
   visible: false,
   loading: false,
@@ -525,6 +554,10 @@ const businessModalConsumptionRows = computed(() => {
   }
   return rows
 })
+
+const projectRankingRows = computed(() =>
+  [...clientBusiness.consumption_ranking].sort((a, b) => b.project_count - a.project_count),
+)
 
 function metric(key: string, label: string, icon: Component, source: OverviewMetric, prefix: string, unit: string, tone: string) {
   return {
@@ -1371,6 +1404,15 @@ onBeforeUnmount(() => {
   padding-bottom: 4px;
 }
 
+.tab-button {
+  border-top: 0;
+  border-right: 0;
+  border-left: 0;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+}
+
 .tab-muted {
   margin-left: 22px;
   color: #475467 !important;
@@ -1378,6 +1420,14 @@ onBeforeUnmount(() => {
   background: transparent;
   cursor: pointer;
   font: inherit;
+}
+
+.table-panel h3 .tab-muted:first-child {
+  margin-left: 0;
+}
+
+.table-panel h3 button + button {
+  margin-left: 22px;
 }
 
 .alert-panel h3 {

@@ -15,6 +15,8 @@ class BillingPriceRuleCreate(BillingPriceRuleBase):
 
 
 class BillingPriceRuleUpdate(BaseModel):
+    base_category_type: str | None = Field(None, min_length=1, max_length=32)
+    production_type: str | None = Field(None, min_length=1, max_length=32)
     production_name: str | None = Field(None, min_length=1, max_length=64)
     unit_price: float | None = Field(None, ge=0)
     is_default: bool | None = None
