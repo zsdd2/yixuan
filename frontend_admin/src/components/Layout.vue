@@ -1,69 +1,68 @@
 <template>
   <div class="layout">
     <aside class="sidebar">
-      <div class="sidebar-brand">
-        <span class="brand-icon">📷</span>
-        <span class="brand-text">摄影项目管理</span>
+      <div class="brand">
+        <div class="brand-mark">艺</div>
+        <div>
+          <div class="brand-name">艺选</div>
+          <div class="brand-sub">YIXUAN</div>
+        </div>
       </div>
 
-      <nav class="sidebar-nav">
+      <nav class="nav">
         <router-link to="/" class="nav-item" :class="{ active: $route.path === '/' }">
-          <span class="nav-icon">🗂️</span>
-          <span>进度控制台</span>
+          <el-icon><Monitor /></el-icon>
+          <span>进度工作台</span>
+        </router-link>
+        <router-link to="/analytics" class="nav-item" :class="{ active: $route.path === '/analytics' }">
+          <el-icon><DataAnalysis /></el-icon>
+          <span>数据罗盘</span>
         </router-link>
         <router-link to="/projects" class="nav-item" :class="{ active: $route.path === '/projects' }">
-          <span class="nav-icon">📁</span>
-          <span>项目中心</span>
+          <el-icon><Folder /></el-icon>
+          <span>项目管理</span>
         </router-link>
         <router-link to="/portfolio" class="nav-item" :class="{ active: $route.path === '/portfolio' }">
-          <span class="nav-icon">🖼️</span>
+          <el-icon><Picture /></el-icon>
           <span>作品中心</span>
         </router-link>
         <router-link to="/materials" class="nav-item" :class="{ active: $route.path === '/materials' }">
-          <span class="nav-icon">▣</span>
+          <el-icon><Collection /></el-icon>
           <span>素材中心</span>
         </router-link>
         <router-link to="/clients" class="nav-item" :class="{ active: $route.path === '/clients' }">
-          <span class="nav-icon">👤</span>
-          <span>客户中心</span>
+          <el-icon><User /></el-icon>
+          <span>客户管理</span>
         </router-link>
         <router-link v-if="userStore.isAdmin" to="/admin/users" class="nav-item" :class="{ active: $route.path === '/admin/users' }">
-          <span class="nav-icon">👥</span>
+          <el-icon><UserFilled /></el-icon>
           <span>用户管理</span>
         </router-link>
-        <div class="nav-group-title" @click="toggleSettings">
-          <span class="nav-icon">⚙️</span>
+        <div class="nav-item nav-group" :class="{ active: isSettingsPage }" @click="toggleSettings">
+          <el-icon><Setting /></el-icon>
           <span>设置中心</span>
-          <span class="nav-arrow" :class="{ expanded: settingsExpanded || isSettingsPage }">›</span>
         </div>
         <template v-if="settingsExpanded || isSettingsPage">
-          <router-link to="/settings/basic" class="nav-item sub-item" :class="{ active: $route.path === '/settings/basic' }">
-            <span>基础设置</span>
-          </router-link>
-          <router-link to="/settings/images" class="nav-item sub-item" :class="{ active: $route.path === '/settings/images' }">
-            <span>系统图库</span>
-          </router-link>
-          <router-link to="/settings/templates" class="nav-item sub-item" :class="{ active: $route.path === '/settings/templates' }">
-            <span>项目模板</span>
-          </router-link>
-          <router-link to="/settings/tags" class="nav-item sub-item" :class="{ active: $route.path === '/settings/tags' }">
-            <span>标签管理</span>
-          </router-link>
-          <router-link v-if="userStore.isAdmin" to="/settings/users" class="nav-item sub-item" :class="{ active: $route.path === '/settings/users' }">
-            <span>用户管理</span>
-          </router-link>
+          <router-link to="/settings/basic" class="nav-item sub-item" :class="{ active: $route.path === '/settings/basic' }">基础设置</router-link>
+          <router-link to="/settings/images" class="nav-item sub-item" :class="{ active: $route.path === '/settings/images' }">系统图库</router-link>
+          <router-link to="/settings/templates" class="nav-item sub-item" :class="{ active: $route.path === '/settings/templates' }">项目模板</router-link>
+          <router-link to="/settings/tags" class="nav-item sub-item" :class="{ active: $route.path === '/settings/tags' }">标签管理</router-link>
+          <router-link v-if="userStore.isAdmin" to="/settings/users" class="nav-item sub-item" :class="{ active: $route.path === '/settings/users' }">用户设置</router-link>
         </template>
       </nav>
 
-      <div class="sidebar-footer">
+      <div class="sidebar-tools">
+        <button class="tool-button">
+          <el-icon><Bell /></el-icon>
+          <span class="badge">12</span>
+        </button>
+        <button class="tool-button" @click="router.push('/settings/basic')">
+          <el-icon><Setting /></el-icon>
+        </button>
         <el-dropdown trigger="click" @command="handleCommand">
-          <div class="user-info">
-            <div class="user-avatar">{{ userStore.userInfo?.display_name?.charAt(0) || 'U' }}</div>
-            <div class="user-details">
-              <div class="user-name">{{ userStore.userInfo?.display_name }}</div>
-              <div class="user-role">{{ roleLabel }}</div>
-            </div>
-          </div>
+          <button class="tool-button">
+            <el-icon><User /></el-icon>
+          </button>
           <template #dropdown>
             <el-dropdown-menu>
               <el-dropdown-item command="profile">个人中心</el-dropdown-item>
@@ -81,9 +80,20 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
+import {
+  Bell,
+  Collection,
+  DataAnalysis,
+  Folder,
+  Monitor,
+  Picture,
+  Setting,
+  User,
+  UserFilled,
+} from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/userStore'
 
 const route = useRoute()
@@ -93,16 +103,6 @@ const settingsExpanded = ref(false)
 
 const isSettingsPage = computed(() => route.path.startsWith('/settings'))
 
-const roleLabel = computed(() => {
-  const roleMap: Record<string, string> = {
-    super_admin: '超级管理员',
-    admin: '管理员',
-    staff: '普通员工',
-    client: '客户',
-  }
-  return roleMap[userStore.userInfo?.role || ''] || '未知'
-})
-
 function toggleSettings() {
   settingsExpanded.value = !settingsExpanded.value
 }
@@ -111,13 +111,9 @@ function handleCommand(command: string) {
   if (command === 'profile') {
     router.push('/user-center')
   } else if (command === 'logout') {
-    ElMessageBox.confirm('确定要退出登录吗？', '提示', {
-      type: 'warning',
-    }).then(() => {
-      userStore.logout()
-    }).catch(() => {
-      // 用户取消
-    })
+    ElMessageBox.confirm('确定要退出登录吗？', '提示', { type: 'warning' })
+      .then(() => userStore.logout())
+      .catch(() => {})
   }
 }
 </script>
@@ -127,173 +123,150 @@ function handleCommand(command: string) {
   display: flex;
   height: 100vh;
   overflow: hidden;
+  background: #f4f8fc;
 }
 
 .sidebar {
-  width: 210px;
-  min-width: 210px;
-  background: #FFFFFF;
-  border-right: 1px solid #F0F0F0;
+  width: 148px;
+  min-width: 148px;
+  height: 100vh;
+  background: linear-gradient(180deg, #07192b 0%, #0a2035 54%, #07192b 100%);
+  color: #c9d6e6;
   display: flex;
   flex-direction: column;
+  box-shadow: 10px 0 28px rgba(8, 31, 54, 0.16);
 }
 
-.sidebar-brand {
+.brand {
+  height: 78px;
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 32px 24px 28px;
-  border-bottom: 1px solid #F0F0F0;
+  padding: 0 20px;
 }
 
-.brand-icon {
+.brand-mark {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-weight: 800;
+  background: linear-gradient(135deg, #0c8bff, #2563eb 58%, #63b3ff);
+}
+
+.brand-name {
   font-size: 18px;
+  line-height: 20px;
+  color: #fff;
+  font-weight: 800;
+  letter-spacing: 2px;
 }
 
-.brand-text {
-  font-size: 15px;
-  font-weight: 700;
-  color: #111827;
-  letter-spacing: 0.01em;
+.brand-sub {
+  margin-top: 2px;
+  font-size: 8px;
+  color: #8ba4bf;
+  letter-spacing: 3px;
 }
 
-.sidebar-nav {
+.nav {
   flex: 1;
-  padding: 16px 14px;
+  padding: 4px 10px 16px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-}
-
-.nav-divider {
-  height: 1px;
-  background: #F0F0F0;
-  margin: 10px 8px;
+  gap: 8px;
 }
 
 .nav-item {
+  height: 42px;
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 16px 18px;
-  border-radius: 12px;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 500;
-  color: #4B5563;
-  transition: all 0.15s ease;
+  gap: 10px;
+  padding: 0 12px;
+  border-radius: 8px;
+  color: #c9d6e6;
   text-decoration: none;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease;
+}
+
+.nav-item .el-icon {
+  font-size: 18px;
 }
 
 .nav-item:hover {
-  background: #F9FAFB;
-  color: #374151;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .nav-item.active {
-  background: #EFF6FF;
-  color: #2563EB;
-  font-weight: 600;
+  color: #fff;
+  background: linear-gradient(135deg, #1d75ff, #276ef1);
+  box-shadow: 0 10px 22px rgba(29, 117, 255, 0.28);
 }
 
-.nav-icon {
-  font-size: 16px;
-  width: 22px;
-  text-align: center;
-  flex-shrink: 0;
-}
-
-.nav-group-title {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 16px 18px 6px;
-  font-size: 12px;
-  font-weight: 600;
-  color: #9CA3AF;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  cursor: pointer;
+.nav-group {
   user-select: none;
-  transition: color 0.15s;
-}
-
-.nav-group-title:hover {
-  color: #6B7280;
-}
-
-.nav-arrow {
-  margin-left: auto;
-  font-size: 14px;
-  transition: transform 0.2s ease;
-  transform: rotate(0deg);
-}
-
-.nav-arrow.expanded {
-  transform: rotate(90deg);
 }
 
 .sub-item {
-  padding-left: 52px !important;
-  font-size: 13px;
+  height: 34px;
+  padding-left: 40px;
+  font-size: 12px;
+  color: #9eb0c4;
+}
+
+.sidebar-tools {
+  padding: 0 0 22px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+}
+
+.tool-button {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 10px;
+  color: #b8c8da;
+  background: transparent;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.tool-button:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.tool-button .el-icon {
+  font-size: 19px;
+}
+
+.badge {
+  position: absolute;
+  top: 0;
+  right: 0;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  color: #fff;
+  background: #ff3b2f;
+  font-size: 10px;
+  line-height: 17px;
 }
 
 .main-content {
   flex: 1;
-  overflow-y: auto;
-  background: #F9FAFB;
-}
-
-.sidebar-footer {
-  padding: 16px;
-  border-top: 1px solid #F0F0F0;
-}
-
-.user-info {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px;
-  border-radius: 12px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.user-info:hover {
-  background: #F9FAFB;
-}
-
-.user-avatar {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 14px;
-  font-weight: 600;
-  flex-shrink: 0;
-}
-
-.user-details {
-  flex: 1;
   min-width: 0;
-}
-
-.user-name {
-  font-size: 14px;
-  font-weight: 600;
-  color: #111827;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.user-role {
-  font-size: 12px;
-  color: #6B7280;
-  margin-top: 2px;
+  overflow-y: auto;
+  background: #f4f8fc;
 }
 </style>

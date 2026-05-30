@@ -707,13 +707,16 @@ async function fetchTargets() {
       request.get(`/api/v1/projects/${projectId.value}`),
     ])
     targets.value = targetsData.items
-    const totalFinal = targetsData.items.reduce((sum: number, t: any) => sum + (t.final_count || 0), 0)
+    const deliveryTargets = targetsData.items.filter((t: any) => t.target_status === 'completed')
+    const totalFinal = deliveryTargets.reduce((sum: number, t: any) => sum + (t.final_count || 0), 0)
     finalPhotoCount.value = totalFinal
     if (totalFinal > 0) {
-      const withFinal = targetsData.items.filter((t: any) => t.final_count > 0 && t.sample_path)
+      const withFinal = deliveryTargets.filter((t: any) => t.final_count > 0 && t.sample_path)
       deliveryCoverUrl.value = withFinal.length > 0
         ? `/storage/${withFinal[0].sample_path}`
         : null
+    } else {
+      deliveryCoverUrl.value = null
     }
     archivedAt.value = projData.archived_at ?? null
     projectName.value = projData.name ?? ''

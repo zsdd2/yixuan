@@ -440,8 +440,13 @@ async function setReference(photoId: number) {
 }
 
 function openPreview(photo: PhotoItem) {
-  const targetList = targetPhotos.value
-  previewPhotos.value = targetList.some(p => p.id === photo.id) ? targetList : allProjectPhotos.value
+  const scopedList = targetPhotos.value.filter(
+    p => p.process_state === photo.process_state && p.status !== 'deleted',
+  )
+  const fallbackList = allProjectPhotos.value.filter(
+    p => p.process_state === photo.process_state && p.status !== 'deleted',
+  )
+  previewPhotos.value = scopedList.some(p => p.id === photo.id) ? scopedList : fallbackList
   const idx = previewPhotos.value.findIndex(p => p.id === photo.id)
   previewIndex.value = idx >= 0 ? idx : 0
   previewVisible.value = true

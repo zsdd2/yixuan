@@ -8,8 +8,10 @@ from fastapi.responses import FileResponse
 from app.database import Base, engine
 import app.models  # noqa: F401  确保所有 ORM 模型注册到 Base.metadata
 from app.init_db import seed_admin_user, seed_builtin_templates
-from app.routers import photos, projects, system, guest, tags, clients, settings, reviews, deliveries, auth, users, billing
+from app.routers import analytics, auth, billing, clients, deliveries, guest, photos, projects, reviews, settings, system, tags, users
 from app.services.delivery_scheduler import start_scheduler, stop_scheduler
+
+APP_VERSION = "1.0.10"
 
 
 # ── 生命周期事件 ──────────────────────────────────────────
@@ -41,7 +43,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Commercial Photography Project Tracker",
     description="商业摄影项目跟进系统",
-    version="2.0.0",
+    version=APP_VERSION,
     lifespan=lifespan,
 )
 
@@ -73,17 +75,18 @@ app.include_router(settings.router)
 app.include_router(reviews.router)
 app.include_router(deliveries.router)
 app.include_router(billing.router)
+app.include_router(analytics.router)
 
 
 @app.get("/", tags=["health"])
 async def root():
-    return {"status": "ok", "message": "System is running", "version": "2.0.0"}
+    return {"status": "ok", "message": "System is running", "version": APP_VERSION}
 
 
 @app.get("/health", tags=["health"])
 async def health_check():
     """健康检查端点，用于容器健康监控"""
-    return {"status": "healthy", "version": "2.0.0"}
+    return {"status": "healthy", "version": APP_VERSION}
 
 
 # ── 静态文件代理（缩略图 & NAS 图片访问）─────────────────
