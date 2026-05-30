@@ -102,12 +102,7 @@
     <el-dialog v-model="showPhotoPicker" title="从项目选图" width="700px" destroy-on-close>
       <div class="picker-toolbar">
         <el-input v-model="pickerSearch" placeholder="编号/文件名" :prefix-icon="Search" size="small" clearable style="width: 130px" />
-        <el-select v-model="pickerScope" size="small" style="width: 150px">
-          <el-option label="当前+未分拣" value="target_unassigned" />
-          <el-option label="当前子项目" value="target" />
-          <el-option label="未分拣" value="unassigned" />
-          <el-option label="全部项目图片" value="all" />
-        </el-select>
+        <el-segmented v-model="pickerMode" :options="pickerModeOptions" size="small" />
         <el-select v-model="pickerProcessState" size="small" clearable placeholder="处理状态" style="width: 105px">
           <el-option label="原图" value="raw" />
           <el-option label="精修图" value="retouched" />
@@ -120,7 +115,7 @@
         <el-select v-model="pickerTagId" size="small" clearable placeholder="标签" style="width: 110px">
           <el-option v-for="tag in projectTags" :key="tag.id" :label="tag.name" :value="tag.id" />
         </el-select>
-        <span class="picker-hint">当前子项目照片优先显示，也可切换选择未分拣或其他图片</span>
+        <span class="picker-hint">默认显示当前子项目图片；切换项目图片后，确认会自动加入当前子项目。</span>
       </div>
       <div class="picker-grid">
         <div
@@ -134,8 +129,8 @@
           </el-image>
           <span class="display-id-badge">#{{ String(photo.display_id).padStart(3, '0') }}</span>
           <span class="process-badge" :class="'ps-' + photo.process_state">{{ processLabel[photo.process_state] }}</span>
-          <span v-if="photo.target_id === props.targetId" class="scope-badge">当前</span>
-          <span v-else-if="!photo.target_id" class="scope-badge muted">未分拣</span>
+          <span class="scope-badge" :class="usageBadgeClass(photo)">{{ usageLabel(photo) }}</span>
+          <span v-if="photo.target_id && (photo.is_referenced || photo.reference_count)" class="scope-badge ref">已引用</span>
           <div v-if="pickerSelected.has(photo.id)" class="check-mark"><el-icon><Select /></el-icon></div>
         </div>
       </div>
@@ -290,7 +285,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ArrowLeft,
@@ -327,6 +322,9 @@ export interface PhotoItem {
   client_notes: string | null
   revision_notes: string | null
   tag_ids?: number[]
+  target_name?: string | null
+  reference_count?: number
+  is_referenced?: boolean
   created_at: string
 }
 
@@ -390,7 +388,11 @@ const targetPhotos = computed(() =>
 // ── 项目选图器 ──────────────────────────────────────────
 const showPhotoPicker = ref(false)
 const pickerSearch = ref('')
-const pickerScope = ref<'target_unassigned' | 'target' | 'unassigned' | 'all'>('target_unassigned')
+const pickerMode = ref<'target' | 'project'>('target')
+const pickerModeOptions = [
+  { label: '子项目图片', value: 'target' },
+  { label: '项目图片', value: 'project' },
+]
 const pickerProcessState = ref<string | null>('raw')
 const pickerStatus = ref<string | null>(null)
 const pickerTagId = ref<number | null>(null)
@@ -408,15 +410,11 @@ const previewUrl = computed(() => previewPhotoItem.value ? thumbUrl(previewPhoto
 
 const pickerPhotos = computed(() => {
   let list = allProjectPhotos.value.filter(p => p.status !== 'deleted')
-  if (pickerScope.value === 'target') {
+  if (pickerMode.value === 'target') {
     list = list.filter(p => p.target_id === props.targetId)
-  } else if (pickerScope.value === 'unassigned') {
-    list = list.filter(p => p.target_id == null)
-  } else if (pickerScope.value === 'target_unassigned') {
-    list = list.filter(p => p.target_id === props.targetId || p.target_id == null)
   }
   list = filterProjectPhotos(list, pickerSearch.value, pickerProcessState.value, pickerStatus.value, pickerTagId.value)
-  return list.sort((a, b) => pickerPriority(a) - pickerPriority(b) || b.display_id - a.display_id)
+  return [...list].sort((a, b) => pickerPriority(a) - pickerPriority(b) || b.display_id - a.display_id)
 })
 
 const referencePickerPhotos = computed(() =>
@@ -452,10 +450,31 @@ function filterProjectPhotos(
 }
 
 function pickerPriority(photo: PhotoItem) {
-  if (photo.target_id === props.targetId) return 0
-  if (photo.target_id == null) return 1
+  if (pickerMode.value === 'target') return 0
+  if (photo.target_id == null && !photo.is_referenced && !photo.reference_count) return 0
+  if (photo.target_id === props.targetId) return 1
   return 2
 }
+
+function usageLabel(photo: PhotoItem) {
+  if (photo.target_id === props.targetId) return '当前子项目'
+  if (photo.target_id) return `已分配：${photo.target_name || '其他子项目'}`
+  if (photo.is_referenced || photo.reference_count) return '已引用'
+  return '未使用'
+}
+
+function usageBadgeClass(photo: PhotoItem) {
+  if (photo.target_id === props.targetId) return 'current'
+  if (photo.target_id) return 'used'
+  if (photo.is_referenced || photo.reference_count) return 'warn'
+  return 'muted'
+}
+
+watch(showPhotoPicker, (visible) => {
+  if (!visible) return
+  pickerMode.value = 'target'
+  pickerSelected.clear()
+})
 
 function togglePicker(id: number) {
   if (pickerSelected.has(id)) pickerSelected.delete(id)
@@ -1078,6 +1097,10 @@ onUnmounted(() => {
   color: #fff; padding: 1px 5px; border-radius: 4px; background: rgba(22, 119, 255, 0.9);
 }
 .scope-badge.muted { background: rgba(107, 114, 128, 0.9); }
+.scope-badge.current { background: rgba(18, 101, 232, 0.9); }
+.scope-badge.used { background: rgba(245, 108, 108, 0.9); }
+.scope-badge.warn { background: rgba(230, 162, 60, 0.95); }
+.scope-badge.ref { bottom: 22px; background: rgba(230, 162, 60, 0.95); }
 .check-mark {
   position: absolute; top: 4px; right: 4px; width: 22px; height: 22px;
   background: #409eff; border-radius: 50%; display: flex; align-items: center;

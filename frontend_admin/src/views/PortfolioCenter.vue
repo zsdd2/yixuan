@@ -131,6 +131,7 @@ import { ref, reactive, computed, onMounted, onUnmounted, nextTick, watch } from
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import request from '../api/request'
+import { downloadStorageFile } from '../composables/usePhotoDownload'
 
 const router = useRouter()
 
@@ -384,13 +385,7 @@ watch(previewVisible, (v) => {
 
 function downloadOriginal(photo: PortfolioPhoto | undefined) {
   if (!photo) return
-  const url = getStorageUrl(photo.original_path)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = photo.original_filename || `photo_${photo.display_id}`
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
+  downloadStorageFile(photo.original_path, photo.original_filename || `photo_${photo.display_id}`)
 }
 </script>
 

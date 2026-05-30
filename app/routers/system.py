@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, TypeVar, Generic
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -198,6 +199,28 @@ async def directory_tree(
 
 
 # ── NAS 目录浏览（平铺式，供文件夹选择器使用） ───────────
+
+@router.get("/download", summary="下载 NAS 存储文件")
+async def download_storage_file(
+    current_user: CurrentUser,
+    path: str = Query(..., description="相对 NAS 根目录的文件路径"),
+    filename: str | None = Query(None, description="下载时使用的文件名"),
+):
+    import urllib.parse
+
+    decoded = urllib.parse.unquote(path).replace("\\", "/")
+    nas_root = NAS_ROOT.resolve()
+    candidate = Path(decoded)
+    target = candidate.resolve() if candidate.is_absolute() else (nas_root / decoded).resolve()
+
+    if not target.is_relative_to(nas_root):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="forbidden")
+    if not target.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="文件不存在")
+
+    download_name = (filename or target.name).replace("\r", "").replace("\n", "").strip() or target.name
+    return FileResponse(target, filename=download_name, content_disposition_type="attachment")
+
 
 class BrowseNasResponse(BaseModel):
     current_path: str

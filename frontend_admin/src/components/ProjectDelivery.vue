@@ -140,6 +140,7 @@ import { ArrowLeft } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import ShareDeliveryModal from './ShareDeliveryModal.vue'
 import request from '../api/request'
+import { downloadStorageFile } from '../composables/usePhotoDownload'
 
 interface DeliveryPhoto {
   id: number
@@ -324,13 +325,7 @@ function toggleOriginal() {
 
 function downloadOriginal(photo: DeliveryPhoto | null) {
   if (!photo) return
-  const url = `/storage/${photo.original_path}`
-  const a = document.createElement('a')
-  a.href = url
-  a.download = photo.original_filename || `photo_${photo.display_id}`
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
+  downloadStorageFile(photo.original_path, photo.original_filename || `photo_${photo.display_id}`)
 }
 
 async function fetchDeliveryPhotos() {

@@ -182,6 +182,7 @@ import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import request from '../api/request'
 import NASPathPicker from '../components/NASPathPicker.vue'
+import { downloadStorageFile } from '../composables/usePhotoDownload'
 
 interface MaterialCategory { name: string; children: string[] }
 interface MaterialItem {
@@ -398,12 +399,7 @@ function openPreview(idx: number) {
 function downloadCurrent() {
   const item = filteredMaterials.value[previewIndex.value]
   if (!item) return
-  const a = document.createElement('a')
-  a.href = storageUrl(item.original_path)
-  a.download = item.name
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
+  downloadStorageFile(item.original_path, item.name)
 }
 </script>
 

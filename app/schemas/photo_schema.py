@@ -22,6 +22,8 @@ class PhotoInList(BaseModel):
     group_name: str | None = None
     target_name: str | None = None
     category_type: str | None = None
+    reference_count: int = 0
+    is_referenced: bool = False
     shot_at: str | None = None
     tag_ids: list[int] = Field(default_factory=list)
     deleted_at: str | None = None

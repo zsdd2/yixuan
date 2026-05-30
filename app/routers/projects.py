@@ -1280,6 +1280,7 @@ async def get_project_photos(
     tag_map: dict[int, list[int]] = {pid: [] for pid in photo_ids}
     target_map: dict[int, ProjectTarget] = {}
     group_map: dict[int, ProjectGroup] = {}
+    reference_count_map: dict[int, int] = {pid: 0 for pid in photo_ids}
     if photo_ids:
         tag_rows = (await db.execute(
             select(photo_tags.c.photo_id, photo_tags.c.tag_id)
@@ -1287,6 +1288,12 @@ async def get_project_photos(
         )).all()
         for pid, tid in tag_rows:
             tag_map[pid].append(tid)
+        reference_rows = (await db.execute(
+            select(TargetReferenceAsset.photo_id, sa_func.count(TargetReferenceAsset.id))
+            .where(TargetReferenceAsset.photo_id.in_(photo_ids))
+            .group_by(TargetReferenceAsset.photo_id)
+        )).all()
+        reference_count_map.update({pid: int(count or 0) for pid, count in reference_rows})
     if target_ids:
         target_map = {
             t.id: t
@@ -1323,6 +1330,8 @@ async def get_project_photos(
             group_name=group_map[photo.group_id].name if photo.group_id in group_map else None,
             target_name=target_map[photo.target_id].name if photo.target_id in target_map else None,
             category_type=target_map[photo.target_id].category_type.value if photo.target_id in target_map else None,
+            reference_count=reference_count_map.get(photo.id, 0),
+            is_referenced=reference_count_map.get(photo.id, 0) > 0,
             shot_at=photo.shot_at.isoformat() if photo.shot_at else None,
             tag_ids=tag_map.get(photo.id, []),
             deleted_at=photo.deleted_at.isoformat() if photo.deleted_at else None,

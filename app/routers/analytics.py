@@ -195,18 +195,9 @@ async def _work_progress(
 ) -> dict:
     filters = _project_filters(current_user, client_id, shooting_type)
 
-    project_rows = (await db.execute(
-        select(Project.project_status, func.count(Project.id)).where(*filters).group_by(Project.project_status)
+    all_project_rows = (await db.execute(
+        select(Project.id, Project.project_status, Project.is_manual).where(*filters)
     )).all()
-    status_map = {status: int(count or 0) for status, count in project_rows}
-    distribution = [
-        {
-            "status": status.value,
-            "label": PROJECT_STATUS_LABELS[status],
-            "count": status_map.get(status, 0),
-        }
-        for status in ProjectStatus
-    ]
 
     final_target_ids = set((await db.execute(
         select(Photo.target_id)
@@ -222,25 +213,82 @@ async def _work_progress(
     )).scalars().all())
 
     target_rows = (await db.execute(
-        select(ProjectTarget.id, ProjectTarget.category_type, ProjectTarget.target_status)
+        select(ProjectTarget.project_id, ProjectTarget.id, ProjectTarget.category_type, ProjectTarget.target_status)
         .join(Project, ProjectTarget.project_id == Project.id)
         .where(*filters, ProjectTarget.deleted_at.is_(None))
     )).all()
     category_total = {"white": 0, "scene": 0}
     category_completed = {"white": 0, "scene": 0}
-    for target_id, category, target_status in target_rows:
+    project_target_totals: dict[int, int] = {}
+    project_target_completed: dict[int, int] = {}
+    white_totals: dict[int, int] = {}
+    white_completed: dict[int, int] = {}
+    scene_totals: dict[int, int] = {}
+    scene_completed: dict[int, int] = {}
+
+    for project_id, target_id, category, target_status in target_rows:
         key = category.value
         category_total[key] += 1
-        if target_status == TargetStatus.completed or target_id in final_target_ids:
+        project_target_totals[project_id] = project_target_totals.get(project_id, 0) + 1
+        completed = target_status == TargetStatus.completed or target_id in final_target_ids
+        if completed:
             category_completed[key] += 1
+            project_target_completed[project_id] = project_target_completed.get(project_id, 0) + 1
+        if category == CategoryType.scene:
+            scene_totals[project_id] = scene_totals.get(project_id, 0) + 1
+            if completed:
+                scene_completed[project_id] = scene_completed.get(project_id, 0) + 1
+        else:
+            white_totals[project_id] = white_totals.get(project_id, 0) + 1
+            if completed:
+                white_completed[project_id] = white_completed.get(project_id, 0) + 1
 
-    photo_rows = (await db.execute(
-        select(Photo.process_state, func.count(Photo.id))
+    photo_state_rows = (await db.execute(
+        select(Photo.project_id, Photo.process_state, func.count(Photo.id))
         .join(Project, Photo.project_id == Project.id)
         .where(*filters, Photo.deleted_at.is_(None), Photo.status != PhotoStatus.deleted)
-        .group_by(Photo.process_state)
+        .group_by(Photo.project_id, Photo.process_state)
     )).all()
-    photo_map = {state: int(count or 0) for state, count in photo_rows}
+    photo_map: dict[ProcessState, int] = {}
+    project_photo_states: dict[int, dict[ProcessState, int]] = {}
+    for project_id, process_state, count in photo_state_rows:
+        count_int = int(count or 0)
+        photo_map[process_state] = photo_map.get(process_state, 0) + count_int
+        project_photo_states.setdefault(project_id, {})[process_state] = count_int
+
+    def computed_project_status(
+        project_id: int,
+        stored_status: ProjectStatus | None,
+        is_manual: bool,
+    ) -> ProjectStatus:
+        if is_manual:
+            return stored_status or ProjectStatus.not_started
+        target_total = project_target_totals.get(project_id, 0)
+        completed_total = project_target_completed.get(project_id, 0)
+        if target_total > 0 and completed_total >= target_total:
+            return ProjectStatus.completed
+        states = project_photo_states.get(project_id, {})
+        if states.get(ProcessState.retouched, 0) > 0 or states.get(ProcessState.final, 0) > 0:
+            return ProjectStatus.retouching
+        if sum(states.values()) > 0:
+            return ProjectStatus.shooting
+        return ProjectStatus.not_started
+
+    computed_status_by_project = {
+        project_id: computed_project_status(project_id, stored_status, is_manual)
+        for project_id, stored_status, is_manual in all_project_rows
+    }
+    status_map: dict[ProjectStatus, int] = {}
+    for computed_status in computed_status_by_project.values():
+        status_map[computed_status] = status_map.get(computed_status, 0) + 1
+    distribution = [
+        {
+            "status": status.value,
+            "label": PROJECT_STATUS_LABELS[status],
+            "count": status_map.get(status, 0),
+        }
+        for status in ProjectStatus
+    ]
 
     project_rows = (await db.execute(
         select(Project)
@@ -249,32 +297,9 @@ async def _work_progress(
         .limit(120)
     )).scalars().all()
     project_ids = [project.id for project in project_rows]
-    white_totals: dict[int, int] = {}
-    white_completed: dict[int, int] = {}
-    scene_totals: dict[int, int] = {}
-    scene_completed: dict[int, int] = {}
     client_names: dict[int, str] = {}
 
     if project_ids:
-        target_summary_rows = (await db.execute(
-            select(
-                ProjectTarget.project_id,
-                ProjectTarget.id,
-                ProjectTarget.category_type,
-                ProjectTarget.target_status,
-            )
-            .where(ProjectTarget.project_id.in_(project_ids), ProjectTarget.deleted_at.is_(None))
-        )).all()
-        for project_id, target_id, category, target_status in target_summary_rows:
-            if category == CategoryType.scene:
-                scene_totals[project_id] = scene_totals.get(project_id, 0) + 1
-                if target_status == TargetStatus.completed or target_id in final_target_ids:
-                    scene_completed[project_id] = scene_completed.get(project_id, 0) + 1
-            else:
-                white_totals[project_id] = white_totals.get(project_id, 0) + 1
-                if target_status == TargetStatus.completed or target_id in final_target_ids:
-                    white_completed[project_id] = white_completed.get(project_id, 0) + 1
-
         client_ids = list({project.client_id for project in project_rows})
         if client_ids:
             client_names = dict((await db.execute(
@@ -283,14 +308,15 @@ async def _work_progress(
 
     projects_by_status: dict[str, list[dict]] = {status.value: [] for status in ProjectStatus}
     for project in project_rows:
-        status_value = project.project_status.value if project.project_status else ProjectStatus.not_started.value
+        computed_status = computed_status_by_project.get(project.id, project.project_status or ProjectStatus.not_started)
+        status_value = computed_status.value
         projects_by_status.setdefault(status_value, []).append({
             "id": project.id,
             "name": project.name,
             "client_name": client_names.get(project.client_id, ""),
             "cover_image": project.cover_image,
             "project_status": status_value,
-            "status_label": PROJECT_STATUS_LABELS.get(project.project_status, ""),
+            "status_label": PROJECT_STATUS_LABELS.get(computed_status, ""),
             "white_total": white_totals.get(project.id, 0),
             "white_completed": white_completed.get(project.id, 0),
             "scene_total": scene_totals.get(project.id, 0),
