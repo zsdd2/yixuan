@@ -144,48 +144,6 @@
           </div>
         </section>
 
-        <template v-if="projectGroups.length > 0">
-          <div v-for="section in groupedTargetSections" :key="section.key" class="kanban-section group-kanban-section">
-            <div class="section-header">
-              <h3 class="section-title">{{ section.name }}</h3>
-              <span class="section-count">{{ section.targets.length }} 个目标</span>
-            </div>
-            <div class="kanban-subtitle">场景图</div>
-            <div class="kanban-grid">
-              <TargetCard
-                v-for="t in section.scene"
-                :key="t.id"
-                :target="t"
-                @navigate-to-lineage="onNavigateToLineage"
-                @open-shuttle="onOpenShuttle"
-                @drill="onDrill"
-                @complete="onComplete"
-                @edit="onEdit"
-                @delete="onDelete"
-                @set-status="onSetStatus"
-              />
-              <div v-if="section.scene.length === 0" class="empty-hint">暂无场景图目标</div>
-            </div>
-            <div class="kanban-subtitle">白图</div>
-            <div class="kanban-grid">
-              <TargetCard
-                v-for="t in section.white"
-                :key="t.id"
-                :target="t"
-                @navigate-to-lineage="onNavigateToLineage"
-                @open-shuttle="onOpenShuttle"
-                @drill="onDrill"
-                @complete="onComplete"
-                @edit="onEdit"
-                @delete="onDelete"
-                @set-status="onSetStatus"
-              />
-              <div v-if="section.white.length === 0" class="empty-hint">暂无白图目标</div>
-            </div>
-          </div>
-        </template>
-
-        <template v-else>
         <!-- 场景图区 -->
         <div class="kanban-section">
           <div class="section-header">
@@ -235,7 +193,6 @@
             </div>
           </div>
         </div>
-        </template>
       </div>
     </div>
 

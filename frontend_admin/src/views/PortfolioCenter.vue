@@ -505,8 +505,10 @@ function downloadCurrentPreview() {
 /* ── 网格布局 ── */
 .portfolio-grid {
   display: grid;
-  grid-template-columns: repeat(8, 1fr);
+  grid-template-columns: repeat(8, minmax(0, 1fr));
   gap: 12px;
+  align-items: start;
+  grid-auto-flow: row;
 }
 
 @media (max-width: 1600px) { .portfolio-grid { grid-template-columns: repeat(6, 1fr); } }
@@ -514,12 +516,21 @@ function downloadCurrentPreview() {
 @media (max-width: 800px) { .portfolio-grid { grid-template-columns: repeat(3, 1fr); } }
 
 /* ── 卡片 ── */
+.grid-item {
+  width: 100%;
+  min-width: 0;
+  grid-column: span 1 !important;
+  grid-row: auto !important;
+}
+
 .card {
   border-radius: 14px;
   overflow: hidden;
   background: #fff;
   box-shadow: 0 2px 10px rgba(0,0,0,0.08);
   transition: box-shadow 0.3s, transform 0.3s;
+  width: 100%;
+  min-width: 0;
 }
 .card:hover {
   box-shadow: 0 6px 20px rgba(0,0,0,0.15);
@@ -531,6 +542,9 @@ function downloadCurrentPreview() {
   overflow: hidden;
   cursor: pointer;
   aspect-ratio: 4 / 3;
+  width: 100%;
+  height: auto;
+  background: #f3f4f6;
 }
 .card-image {
   width: 100%;
@@ -547,6 +561,8 @@ function downloadCurrentPreview() {
   padding: 16px 12px 14px;
   text-align: center;
   background: white;
+  min-height: 136px;
+  box-sizing: border-box;
 }
 .info-line-1 {
   font-size: 18px;
