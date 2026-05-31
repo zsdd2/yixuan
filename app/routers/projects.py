@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.deps import CurrentUser
-from app.models import CategoryType, Client, Photo, PhotoStatus, ProcessState, Project, ProjectGroup, ProjectStatus, ProjectTag, ProjectTarget, ProjectTemplate, SystemTargetDictionary, TargetReferenceAsset, TargetStatus, TemplateTarget, User, UserRole, photo_tags, user_project_access
+from app.models import CategoryType, Client, Photo, PhotoStatus, ProcessState, Project, ProjectGroup, ProjectStatus, ProjectTag, ProjectTarget, ProjectTemplate, SystemTargetDictionary, TargetReferenceAsset, TargetStatus, TemplateTarget, User, UserRole, photo_tags, portfolio_photo_tags, user_project_access
 from app.schemas.project_schema import (
     ArchiveResponse,
     ProjectCreate,
@@ -1278,6 +1278,7 @@ async def get_project_photos(
     target_ids = list({p.target_id for p in photos if p.target_id is not None})
     group_ids = list({p.group_id for p in photos if p.group_id is not None})
     tag_map: dict[int, list[int]] = {pid: [] for pid in photo_ids}
+    portfolio_tag_map: dict[int, list[int]] = {pid: [] for pid in photo_ids}
     target_map: dict[int, ProjectTarget] = {}
     group_map: dict[int, ProjectGroup] = {}
     reference_count_map: dict[int, int] = {pid: 0 for pid in photo_ids}
@@ -1288,6 +1289,12 @@ async def get_project_photos(
         )).all()
         for pid, tid in tag_rows:
             tag_map[pid].append(tid)
+        portfolio_tag_rows = (await db.execute(
+            select(portfolio_photo_tags.c.photo_id, portfolio_photo_tags.c.tag_id)
+            .where(portfolio_photo_tags.c.photo_id.in_(photo_ids))
+        )).all()
+        for pid, tid in portfolio_tag_rows:
+            portfolio_tag_map[pid].append(tid)
         reference_rows = (await db.execute(
             select(TargetReferenceAsset.photo_id, sa_func.count(TargetReferenceAsset.id))
             .where(TargetReferenceAsset.photo_id.in_(photo_ids))
@@ -1320,6 +1327,7 @@ async def get_project_photos(
             version=photo.version,
             is_confirmed=photo.is_confirmed,
             original_path=photo.original_path,
+            original_filename=photo.original_filename,
             thumbnail_path=photo.thumbnail_path,
             status=photo.status.value,
             process_state=photo.process_state.value,
@@ -1334,6 +1342,7 @@ async def get_project_photos(
             is_referenced=reference_count_map.get(photo.id, 0) > 0,
             shot_at=photo.shot_at.isoformat() if photo.shot_at else None,
             tag_ids=tag_map.get(photo.id, []),
+            portfolio_tag_ids=portfolio_tag_map.get(photo.id, []),
             deleted_at=photo.deleted_at.isoformat() if photo.deleted_at else None,
             created_at=photo.created_at.isoformat(),
         )

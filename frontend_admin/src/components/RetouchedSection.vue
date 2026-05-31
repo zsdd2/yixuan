@@ -805,17 +805,26 @@ async function saveNotes() {
 
 .hero-preview {
   width: 100%;
-  aspect-ratio: 1 / 1.32;
+  height: 440px;
   border-radius: 6px;
-  overflow: hidden;
+  overflow: visible;
   background: #f6f3ef;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
 }
 
-.hero-img,
-.hero-img :deep(img) {
-  width: 100%;
+.hero-img {
+  width: auto;
   height: 100%;
-  object-fit: cover;
+  max-width: 100%;
+}
+
+.hero-img :deep(img) {
+  width: auto;
+  height: 100%;
+  max-width: 100%;
+  object-fit: contain;
 }
 
 .hero-empty {

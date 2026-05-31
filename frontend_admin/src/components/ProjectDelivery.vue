@@ -37,6 +37,20 @@
               <div class="info-line-4">{{ projectName }}</div>
             </div>
           </div>
+          <el-select
+            v-model="item.portfolio_tag_ids"
+            class="portfolio-tag-select"
+            multiple
+            collapse-tags
+            collapse-tags-tooltip
+            clearable
+            size="small"
+            placeholder="作品标签"
+            @click.stop
+            @change="updatePortfolioTags(item)"
+          >
+            <el-option v-for="tag in systemTags" :key="tag.id" :label="tag.name" :value="tag.id" />
+          </el-select>
         </div>
       </div>
     </div>
@@ -63,6 +77,20 @@
               <div class="info-line-4">{{ projectName }}</div>
             </div>
           </div>
+          <el-select
+            v-model="item.portfolio_tag_ids"
+            class="portfolio-tag-select"
+            multiple
+            collapse-tags
+            collapse-tags-tooltip
+            clearable
+            size="small"
+            placeholder="作品标签"
+            @click.stop
+            @change="updatePortfolioTags(item)"
+          >
+            <el-option v-for="tag in systemTags" :key="tag.id" :label="tag.name" :value="tag.id" />
+          </el-select>
         </div>
       </div>
     </div>
@@ -150,6 +178,13 @@ interface DeliveryPhoto {
   original_path: string
   original_filename: string | null
   thumbnail_path: string | null
+  portfolio_tag_ids: number[]
+}
+
+interface SystemTagItem {
+  id: number
+  name: string
+  color: string
 }
 
 const props = defineProps<{ projectId: string | number }>()
@@ -163,6 +198,7 @@ const currentIndex = ref(0)
 const selectedIds = ref<Set<number>>(new Set())
 const selectAll = ref(false)
 const showShareModal = ref(false)
+const systemTags = ref<SystemTagItem[]>([])
 const polaroidImgRef = ref<HTMLImageElement | null>(null)
 const showOriginal = ref(false) // 默认显示缩略图（内部工作台也改为缩略图优先）
 
@@ -328,6 +364,27 @@ function downloadOriginal(photo: DeliveryPhoto | null) {
   downloadStorageFile(photo.original_path, photo.original_filename || `photo_${photo.display_id}`)
 }
 
+async function fetchSystemTags() {
+  try {
+    const data = await request.get('/api/v1/settings/tags')
+    systemTags.value = data.items || []
+  } catch {
+    systemTags.value = []
+  }
+}
+
+async function updatePortfolioTags(photo: DeliveryPhoto) {
+  try {
+    const data = await request.patch(`/api/v1/photos/${photo.id}/portfolio-tags`, {
+      tag_ids: photo.portfolio_tag_ids || [],
+    })
+    photo.portfolio_tag_ids = data.portfolio_tag_ids || []
+    ElMessage.success('作品标签已更新')
+  } catch (e: any) {
+    ElMessage.error(e.message || '作品标签更新失败')
+  }
+}
+
 async function fetchDeliveryPhotos() {
   try {
     const [photosData, targetsData, projectData] = await Promise.all([
@@ -355,12 +412,14 @@ async function fetchDeliveryPhotos() {
           original_path: p.original_path,
           original_filename: p.original_filename || null,
           thumbnail_path: p.thumbnail_path,
+          portfolio_tag_ids: p.portfolio_tag_ids || [],
         }
       })
   } catch {}
 }
 
 onMounted(() => {
+  fetchSystemTags()
   fetchDeliveryPhotos()
   document.addEventListener('keydown', onKeydown)
 })
@@ -396,6 +455,11 @@ onUnmounted(() => {
 }
 
 .card-content { cursor: pointer; }
+
+.portfolio-tag-select {
+  width: calc(100% - 24px);
+  margin: 0 12px 14px;
+}
 
 .delivery-img { width: 100%; aspect-ratio: 4/3; }
 .delivery-img :deep(img) { width: 100%; height: 100%; object-fit: cover; }

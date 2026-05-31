@@ -302,6 +302,13 @@ photo_tags = Table(
     Column("tag_id", BigInteger, ForeignKey("project_tags.id", ondelete="CASCADE"), primary_key=True),
 )
 
+portfolio_photo_tags = Table(
+    "portfolio_photo_tags",
+    Base.metadata,
+    Column("photo_id", BigInteger, ForeignKey("photos.id", ondelete="CASCADE"), primary_key=True),
+    Column("tag_id", BigInteger, ForeignKey("system_tags.id", ondelete="CASCADE"), primary_key=True),
+)
+
 
 class ProjectTag(Base):
     __tablename__ = "project_tags"

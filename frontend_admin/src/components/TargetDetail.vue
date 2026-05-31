@@ -178,7 +178,12 @@
       <el-empty v-if="referencePickerPhotos.length === 0" description="暂无可选照片，可切换项目图片" :image-size="60" />
     </el-dialog>
 
-    <div v-if="previewVisible" class="preview-mask" @click.self="closePreview">
+    <PhotoPreviewViewer
+      v-model="previewVisible"
+      v-model:index="previewIndex"
+      :photos="previewPhotos"
+    />
+    <div v-if="false" class="preview-mask" @click.self="closePreview">
       <div class="preview-shell">
         <div class="preview-image-wrap">
           <img :src="previewUrl" class="preview-image" />
@@ -308,6 +313,7 @@ import NASPathPicker from './NASPathPicker.vue'
 import ConfirmedRawSection from './ConfirmedRawSection.vue'
 import RetouchedSection from './RetouchedSection.vue'
 import FinalSection from './FinalSection.vue'
+import PhotoPreviewViewer from './PhotoPreviewViewer.vue'
 
 export interface PhotoItem {
   id: number

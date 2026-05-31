@@ -265,9 +265,15 @@ async def _sync_final_photo_items(
             continue
 
         if item.source == "auto":
+            old_category_type = item.base_category_type
             item.target_id = target.id
             item.base_category_type = base_category_type
-            if not item.production_type:
+            should_reset_rule = (
+                not item.production_type
+                or old_category_type != base_category_type
+                or item.production_name in {"默认白图", "默认场景图", "默认制作"}
+            )
+            if should_reset_rule:
                 item.production_type = rule.production_type
                 item.production_name = rule.production_name
                 item.unit_price = unit_price

@@ -33,6 +33,9 @@
       <el-select v-model="filterClientId" placeholder="客户" clearable filterable size="default" style="width:150px" @change="resetAndFetch">
         <el-option v-for="c in filters.clients" :key="c.id" :label="c.name" :value="c.id" />
       </el-select>
+      <el-select v-model="filterPortfolioTagId" placeholder="作品标签" clearable filterable size="default" style="width:150px" @change="resetAndFetch">
+        <el-option v-for="tag in filters.system_tags" :key="tag.id" :label="tag.name" :value="tag.id" />
+      </el-select>
     </div>
 
     <!-- 网格布局 -->
@@ -148,6 +151,7 @@ interface PortfolioPhoto {
   original_path: string
   original_filename: string | null
   process_state: string
+  portfolio_tag_ids: number[]
   shot_at: string | null
   created_at: string
 }
@@ -172,12 +176,14 @@ const filterCategoryType = ref<string>('')
 const filterProjectId = ref<number | null>(null)
 const filterTargetName = ref<string>('')
 const filterClientId = ref<number | null>(null)
+const filterPortfolioTagId = ref<number | null>(null)
 
 const filters = reactive({
   shooting_types: [] as string[],
   clients: [] as { id: number; name: string }[],
   projects: [] as { id: number; name: string }[],
   target_names: [] as string[],
+  system_tags: [] as { id: number; name: string; color: string }[],
 })
 
 // 动态计算可用的视角名称列表
@@ -223,11 +229,15 @@ function goToProject(projectId: number) {
 
 async function fetchFilters() {
   try {
-    const d = await request.get('/api/v1/photos/portfolio/filters')
+    const [d, tagData] = await Promise.all([
+      request.get('/api/v1/photos/portfolio/filters'),
+      request.get('/api/v1/settings/tags'),
+    ])
     filters.shooting_types = d.shooting_types
     filters.clients = d.clients
     filters.projects = d.projects
     filters.target_names = d.target_names || []
+    filters.system_tags = tagData.items || []
   } catch {}
 }
 
@@ -258,6 +268,7 @@ function buildQuery(): string {
   if (filterProjectId.value) params.set('project_id', String(filterProjectId.value))
   if (filterTargetName.value) params.set('target_name', filterTargetName.value)
   if (filterClientId.value) params.set('client_id', String(filterClientId.value))
+  if (filterPortfolioTagId.value) params.set('portfolio_tag_id', String(filterPortfolioTagId.value))
   return params.toString()
 }
 

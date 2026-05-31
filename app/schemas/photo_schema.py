@@ -26,6 +26,7 @@ class PhotoInList(BaseModel):
     is_referenced: bool = False
     shot_at: str | None = None
     tag_ids: list[int] = Field(default_factory=list)
+    portfolio_tag_ids: list[int] = Field(default_factory=list)
     deleted_at: str | None = None
     created_at: str
 
@@ -150,8 +151,13 @@ class PortfolioItem(BaseModel):
     original_path: str
     original_filename: str | None = None
     process_state: str = "raw"
+    portfolio_tag_ids: list[int] = Field(default_factory=list)
     shot_at: str | None = None
     created_at: str
+
+
+class PortfolioTagsUpdateRequest(BaseModel):
+    tag_ids: list[int] = Field(default_factory=list, max_length=50)
 
 
 class PortfolioListResponse(BaseModel):

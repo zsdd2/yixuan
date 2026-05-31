@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import AsyncSessionLocal, get_db
 from app.deps import CurrentUser
-from app.models import CategoryType, Client, Photo, PhotoStatus, ProcessState, Project, ProjectGroup, ProjectTag, ProjectTarget, photo_tags
+from app.models import CategoryType, Client, Photo, PhotoStatus, ProcessState, Project, ProjectGroup, ProjectTag, ProjectTarget, SystemTag, photo_tags, portfolio_photo_tags
 from app.logic.status_manager import compute_project_status, compute_target_status
 from app.services.delivery_zip_service import mark_zip_dirty
 from app.schemas.photo_schema import (
@@ -35,6 +35,7 @@ from app.schemas.photo_schema import (
     PortfolioFilterResponse,
     PortfolioItem,
     PortfolioListResponse,
+    PortfolioTagsUpdateRequest,
     ScanNasRequest,
     ScanNasResponse,
     ScanTaskStatusResponse,
@@ -916,6 +917,7 @@ async def portfolio_list(
     target_name: str | None = Query(None),
     shooting_type: str | None = Query(None),
     category_type: str | None = Query(None),
+    portfolio_tag_id: int | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ) -> PortfolioListResponse:
     base = (
@@ -956,6 +958,14 @@ async def portfolio_list(
         base = base.where(Project.shooting_type == shooting_type)
     if category_type is not None:
         base = base.where(ProjectTarget.category_type == CategoryType(category_type))
+    if portfolio_tag_id is not None:
+        base = base.where(
+            Photo.id.in_(
+                select(portfolio_photo_tags.c.photo_id).where(
+                    portfolio_photo_tags.c.tag_id == portfolio_tag_id
+                )
+            )
+        )
 
     count_stmt = select(sa_func.count()).select_from(base.subquery())
     total = (await db.execute(count_stmt)).scalar() or 0
@@ -963,6 +973,16 @@ async def portfolio_list(
     rows = (await db.execute(
         base.order_by(Photo.created_at.desc()).offset(skip).limit(limit)
     )).all()
+
+    photo_ids = [r.id for r in rows]
+    tag_map: dict[int, list[int]] = {pid: [] for pid in photo_ids}
+    if photo_ids:
+        tag_rows = (await db.execute(
+            select(portfolio_photo_tags.c.photo_id, portfolio_photo_tags.c.tag_id)
+            .where(portfolio_photo_tags.c.photo_id.in_(photo_ids))
+        )).all()
+        for photo_id, tag_id in tag_rows:
+            tag_map.setdefault(photo_id, []).append(tag_id)
 
     items = []
     for r in rows:
@@ -981,11 +1001,50 @@ async def portfolio_list(
             original_path=r.original_path,
             original_filename=r.original_filename,
             process_state=r.process_state.value,
+            portfolio_tag_ids=tag_map.get(r.id, []),
             shot_at=r.shot_at.isoformat() if r.shot_at else None,
             created_at=r.created_at.isoformat(),
         ))
 
     return PortfolioListResponse(total=total, items=items)
+
+
+@router.patch("/{photo_id}/portfolio-tags", summary="更新作品标签")
+async def update_portfolio_tags(
+    photo_id: int,
+    body: PortfolioTagsUpdateRequest,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    from sqlalchemy import delete
+
+    photo = await db.get(Photo, photo_id)
+    if (
+        photo is None
+        or photo.status == PhotoStatus.deleted
+        or photo.deleted_at is not None
+        or photo.process_state != ProcessState.final
+    ):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="未找到可设置作品标签的完成图")
+
+    tag_ids = list(dict.fromkeys(body.tag_ids))
+    if tag_ids:
+        existing_ids = set((await db.execute(
+            select(SystemTag.id).where(SystemTag.id.in_(tag_ids))
+        )).scalars().all())
+        missing = [tid for tid in tag_ids if tid not in existing_ids]
+        if missing:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"作品标签不存在: {missing}")
+    else:
+        existing_ids = set()
+
+    await db.execute(delete(portfolio_photo_tags).where(portfolio_photo_tags.c.photo_id == photo_id))
+    for tag_id in tag_ids:
+        if tag_id in existing_ids:
+            await db.execute(portfolio_photo_tags.insert().values(photo_id=photo_id, tag_id=tag_id))
+
+    await db.commit()
+    return {"photo_id": photo_id, "portfolio_tag_ids": tag_ids}
 
 
 # ── 确认原图 ────────────────────────────────────────────────
