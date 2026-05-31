@@ -1252,14 +1252,9 @@ async def promote_photo_to_final(
         shot_at=source.shot_at,
     )
     db.add(final_photo)
-    affected_target_ids = {photo.target_id for photo in photos if photo.target_id is not None}
-    if body.target_id is not None:
-        affected_target_ids.add(body.target_id)
-    for tid in affected_target_ids:
-        await compute_target_status(db, tid)
-    affected_project_ids = {photo.project_id for photo in photos}
-    for pid in affected_project_ids:
-        await compute_project_status(db, pid)
+    await db.flush()
+    await compute_target_status(db, final_photo.target_id)
+    await compute_project_status(db, final_photo.project_id)
 
     await db.commit()
     await db.refresh(final_photo)

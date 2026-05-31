@@ -1,7 +1,7 @@
 {
   "name": "frontend_admin",
   "private": true,
-  "version": "1.0.16",
+  "version": "1.2.0",
   "type": "module",
   "scripts": {
     "dev": "npx kill-port 15173 && vite",

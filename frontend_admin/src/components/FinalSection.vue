@@ -76,50 +76,90 @@
 
     <el-empty v-if="finalPhotos.length === 0" description="暂无完成图" :image-size="60" />
 
-    <el-dialog v-model="showUploadDialog" title="选择完成图" width="720px" destroy-on-close>
-      <el-form label-width="90px">
-        <el-form-item label="关联精修图">
-          <div class="source-photo-picker">
-            <div class="source-photo-grid">
-              <div
-                v-for="p in confirmedRetouchedPhotos"
-                :key="p.id"
-                :class="['source-photo-card', { selected: uploadParentId === p.id }]"
-                @click="uploadParentId = p.id"
-              >
-                <el-image :src="thumbUrl(p)" fit="cover" lazy class="source-photo-img">
-                  <template #error><div class="thumb-error"><el-icon><PictureFilled /></el-icon></div></template>
-                </el-image>
-                <span class="display-id-badge">#{{ displayId(p) }}</span>
-                <span v-if="p.retouch_quality" class="quality-badge">{{ qualityLabel(p.retouch_quality) }}</span>
-                <button class="zoom-btn card-zoom" title="放大查看" @click.stop="emit('preview', p)">⌕</button>
-                <div class="source-photo-name" :title="p.original_filename || ''">{{ p.original_filename || `#${displayId(p)}` }}</div>
-              </div>
-            </div>
-            <el-empty v-if="confirmedRetouchedPhotos.length === 0" description="暂无精修图" :image-size="40" />
+    <el-dialog v-model="showUploadDialog" width="1180px" destroy-on-close class="image-select-dialog">
+      <div class="image-select-layout">
+        <aside class="select-left">
+          <h2 class="select-title">选择完成图</h2>
+          <div class="hero-preview">
+            <el-image v-if="selectedRetouchedPhoto" :src="thumbUrl(selectedRetouchedPhoto)" fit="cover" class="hero-img" />
+            <div v-else class="hero-empty">请选择关联精修图</div>
           </div>
-        </el-form-item>
-        <el-form-item label="生成方式">
-          <el-radio-group v-model="finalSourceMode">
-            <el-radio value="promote">直接使用精修图</el-radio>
-            <el-radio value="upload">上传新完成图</el-radio>
-          </el-radio-group>
-        </el-form-item>
-        <el-form-item label="最终图说明">
-          <el-input v-model="uploadNotes" type="textarea" :rows="2" placeholder="最终图说明，可为空" />
-        </el-form-item>
-        <el-form-item v-if="finalSourceMode === 'upload'" label="上传文件">
-          <el-upload
-            ref="uploadRef"
-            :auto-upload="false"
-            :limit="1"
-            accept=".jpg,.jpeg,.png,.tif,.tiff,.webp"
-            :on-change="onFileChange"
-          >
-            <el-button type="primary" plain>选择文件</el-button>
-          </el-upload>
-        </el-form-item>
-      </el-form>
+          <div class="source-title">关联精修图</div>
+          <div class="source-strip">
+            <button class="strip-arrow" :disabled="selectedRetouchedIndex <= 0" @click="selectRetouchedByOffset(-1)">‹</button>
+            <div
+              v-for="p in visibleRetouchedPhotos"
+              :key="p.id"
+              :class="['strip-card', { selected: uploadParentId === p.id }]"
+              @click="uploadParentId = p.id"
+            >
+              <el-image :src="thumbUrl(p)" fit="cover" class="strip-img" />
+            </div>
+            <button class="strip-arrow" :disabled="selectedRetouchedIndex >= confirmedRetouchedPhotos.length - 1" @click="selectRetouchedByOffset(1)">›</button>
+          </div>
+          <div class="strip-count">{{ selectedRetouchedIndex + 1 || 0 }} / {{ confirmedRetouchedPhotos.length }}</div>
+        </aside>
+
+        <section class="select-right">
+          <el-form label-position="top" class="select-form">
+            <el-form-item label="生成方式">
+              <el-radio-group v-model="finalSourceMode" class="quality-options">
+                <el-radio value="promote">直接使用精修图</el-radio>
+                <el-radio value="upload">上传新完成图</el-radio>
+              </el-radio-group>
+            </el-form-item>
+            <el-form-item label="最终图说明">
+              <el-input
+                v-model="uploadNotes"
+                type="textarea"
+                :rows="4"
+                maxlength="200"
+                show-word-limit
+                placeholder="最终图说明，可为空"
+              />
+            </el-form-item>
+            <el-form-item label="图片来源">
+              <el-tabs v-model="finalSourceTab" class="source-tabs">
+                <el-tab-pane label="从项目选择" name="existing">
+                  <div class="mode-row">默认显示当前子项目中可生成完成图的精修图。</div>
+                  <div class="design-photo-grid">
+                    <div
+                      v-for="p in confirmedRetouchedPhotos"
+                      :key="p.id"
+                      :class="['design-photo-card', { selected: uploadParentId === p.id }]"
+                      @click="uploadParentId = p.id"
+                    >
+                      <el-image :src="thumbUrl(p)" fit="cover" lazy class="design-thumb">
+                        <template #error><div class="thumb-error"><el-icon><PictureFilled /></el-icon></div></template>
+                      </el-image>
+                      <span v-if="p.retouch_quality" class="design-state state-retouched">{{ qualityLabel(p.retouch_quality) }}</span>
+                      <button class="zoom-btn design-zoom" title="放大查看" @click.stop="emit('preview', p)">⌕</button>
+                      <div class="design-card-footer">
+                        <span>#{{ displayId(p) }}</span>
+                        <span class="radio-dot" :class="{ checked: uploadParentId === p.id }"></span>
+                      </div>
+                    </div>
+                  </div>
+                  <el-empty v-if="confirmedRetouchedPhotos.length === 0" description="暂无精修图" :image-size="40" />
+                </el-tab-pane>
+                <el-tab-pane label="上传新文件" name="upload">
+                  <el-upload
+                    v-if="finalSourceMode === 'upload'"
+                    ref="uploadRef"
+                    :auto-upload="false"
+                    :limit="1"
+                    accept=".jpg,.jpeg,.png,.tif,.tiff,.webp"
+                    :on-change="onFileChange"
+                  >
+                    <el-button type="primary" plain>选择文件</el-button>
+                  </el-upload>
+                  <span v-else class="upload-muted">切换为“上传新完成图”后可选择文件。</span>
+                </el-tab-pane>
+              </el-tabs>
+            </el-form-item>
+          </el-form>
+        </section>
+      </div>
       <template #footer>
         <el-button @click="showUploadDialog = false">取消</el-button>
         <el-button type="primary" :loading="uploading" :disabled="!uploadParentId || (finalSourceMode === 'upload' && !uploadFile)" @click="uploadFinal">
@@ -131,7 +171,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { PictureFilled, Download } from '@element-plus/icons-vue'
 import type { PhotoItem } from './TargetDetail.vue'
@@ -154,6 +194,18 @@ const uploadFile = ref<File | null>(null)
 const uploading = ref(false)
 const uploadRef = ref()
 const finalSourceMode = ref<'promote' | 'upload'>('promote')
+const finalSourceTab = ref<'existing' | 'upload'>('existing')
+
+watch(showUploadDialog, (visible) => {
+  if (visible && uploadParentId.value == null && confirmedRetouchedPhotos.value.length > 0) {
+    uploadParentId.value = confirmedRetouchedPhotos.value[0].id
+  }
+})
+
+watch(finalSourceMode, (mode) => {
+  if (mode === 'upload') finalSourceTab.value = 'upload'
+  else finalSourceTab.value = 'existing'
+})
 
 const finalPhotos = computed(() =>
   props.photos.filter(p => p.process_state === 'final' && p.status !== 'deleted')
@@ -162,6 +214,29 @@ const finalPhotos = computed(() =>
 const confirmedRetouchedPhotos = computed(() =>
   props.photos.filter(p => p.process_state === 'retouched' && p.status !== 'deleted' && p.parent_id != null)
 )
+
+const selectedRetouchedPhoto = computed(() =>
+  confirmedRetouchedPhotos.value.find(p => p.id === uploadParentId.value) || confirmedRetouchedPhotos.value[0] || null
+)
+
+const selectedRetouchedIndex = computed(() => {
+  if (!selectedRetouchedPhoto.value) return -1
+  return confirmedRetouchedPhotos.value.findIndex(p => p.id === selectedRetouchedPhoto.value!.id)
+})
+
+const visibleRetouchedPhotos = computed(() => {
+  if (confirmedRetouchedPhotos.value.length <= 2) return confirmedRetouchedPhotos.value
+  const index = selectedRetouchedIndex.value >= 0 ? selectedRetouchedIndex.value : 0
+  const start = Math.min(Math.max(index, 0), Math.max(confirmedRetouchedPhotos.value.length - 2, 0))
+  return confirmedRetouchedPhotos.value.slice(start, start + 2)
+})
+
+function selectRetouchedByOffset(offset: number) {
+  if (confirmedRetouchedPhotos.value.length === 0) return
+  const currentIndex = selectedRetouchedIndex.value >= 0 ? selectedRetouchedIndex.value : 0
+  const nextIndex = Math.min(Math.max(currentIndex + offset, 0), confirmedRetouchedPhotos.value.length - 1)
+  uploadParentId.value = confirmedRetouchedPhotos.value[nextIndex].id
+}
 
 function thumbUrl(photo: PhotoItem): string {
   const path = photo.thumbnail_path || photo.original_path
@@ -217,6 +292,7 @@ async function uploadFinal() {
     uploadNotes.value = ''
     uploadFile.value = null
     finalSourceMode.value = 'promote'
+    finalSourceTab.value = 'existing'
     uploadRef.value?.clearFiles?.()
     emit('uploaded')
   } catch (e: any) {
@@ -386,92 +462,186 @@ async function uploadFinal() {
 .final-thumb-wrapper:hover .zoom-btn { display: flex; }
 .zoom-btn:hover { background: #409eff; color: #fff; }
 
-.source-photo-picker {
-  width: 100%;
-}
-
-.source-photo-grid {
+.image-select-dialog :deep(.el-dialog) { border-radius: 12px; }
+.image-select-dialog :deep(.el-dialog__header) { padding: 0; }
+.image-select-dialog :deep(.el-dialog__body) { padding: 44px 42px 28px; }
+.image-select-layout {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-  gap: 10px;
-  max-height: 300px;
-  overflow-y: auto;
+  grid-template-columns: 360px minmax(0, 1fr);
+  gap: 42px;
+  min-height: 650px;
 }
-
-.source-photo-card {
-  position: relative;
-  aspect-ratio: 1;
-  border: 2px solid transparent;
-  border-radius: 8px;
+.select-left {
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid #eadfce;
+  padding-right: 26px;
+}
+.select-title {
+  margin: 0 0 58px;
+  font-size: 34px;
+  line-height: 1.1;
+  font-weight: 500;
+  color: #2f2a27;
+}
+.hero-preview {
+  width: 100%;
+  aspect-ratio: 1 / 1.32;
+  border-radius: 6px;
   overflow: hidden;
-  cursor: pointer;
-  background: #f5f7fa;
-  transition: border-color 0.15s, transform 0.15s;
+  background: #f6f3ef;
 }
-
-.source-photo-card:hover {
-  transform: scale(1.03);
-}
-
-.source-photo-card.selected {
-  border-color: #409eff;
-  box-shadow: 0 0 0 2px rgba(64,158,255,0.3);
-}
-
-.source-photo-img,
-.source-photo-img :deep(img) {
+.hero-img,
+.hero-img :deep(img) {
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
-
-.display-id-badge {
-  position: absolute;
-  top: 4px;
-  left: 4px;
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: rgba(0,0,0,0.55);
-  color: white;
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.quality-badge {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  padding: 2px 5px;
-  border-radius: 4px;
-  background: rgba(230, 162, 60, 0.92);
-  color: white;
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.source-photo-name {
-  position: absolute;
-  left: 4px;
-  right: 4px;
-  bottom: 4px;
-  padding: 2px 4px;
-  border-radius: 4px;
-  background: rgba(0,0,0,0.55);
-  color: white;
-  font-size: 11px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.card-zoom {
-  left: 6px;
-  bottom: 28px;
-}
-
-.source-photo-card:hover .card-zoom {
+.hero-empty {
+  width: 100%;
+  height: 100%;
   display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #b59b78;
 }
+.source-title {
+  margin: 32px 0 16px;
+  color: #aa8253;
+  font-size: 16px;
+  font-weight: 700;
+}
+.source-strip {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  overflow: hidden;
+}
+.strip-card {
+  width: 82px;
+  height: 82px;
+  border: 2px solid transparent;
+  border-radius: 6px;
+  overflow: hidden;
+  cursor: pointer;
+  background: #f5f5f5;
+}
+.strip-card.selected { border-color: #c7a477; }
+.strip-img,
+.strip-img :deep(img) {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.strip-arrow {
+  border: none;
+  background: transparent;
+  color: #b8905d;
+  font-size: 32px;
+  cursor: pointer;
+}
+.strip-arrow:disabled { opacity: 0.35; cursor: default; }
+.strip-count {
+  margin-top: 24px;
+  color: #b8905d;
+  font-size: 20px;
+  letter-spacing: 1px;
+}
+.select-right { padding-top: 58px; }
+.select-form :deep(.el-form-item__label) {
+  color: #303133;
+  font-size: 15px;
+  font-weight: 700;
+}
+.select-form :deep(.el-textarea__inner) {
+  min-height: 102px !important;
+  border-radius: 6px;
+}
+.quality-options {
+  display: flex;
+  gap: 72px;
+}
+.source-tabs { width: 100%; }
+.source-tabs :deep(.el-tabs__item) {
+  font-size: 17px;
+  padding: 0 32px;
+}
+.source-tabs :deep(.el-tabs__nav-wrap::after) {
+  height: 1px;
+  background: #eadfce;
+}
+.source-tabs :deep(.el-tabs__active-bar) {
+  height: 2px;
+  background: #2f7eea;
+}
+.mode-row {
+  margin: 14px 0 18px;
+  color: #9b9b9b;
+  font-size: 13px;
+}
+.design-photo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 12px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+.design-photo-card {
+  position: relative;
+  border: 2px solid #eadfce;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+  cursor: pointer;
+}
+.design-photo-card.selected { border-color: #2f7eea; }
+.design-thumb {
+  width: 100%;
+  aspect-ratio: 1 / 1.35;
+  background: #f5f5f5;
+}
+.design-thumb :deep(img) {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.design-state {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  border-radius: 4px;
+  padding: 3px 7px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  background: #7c4ee8;
+}
+.design-card-footer {
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px;
+  font-size: 15px;
+  color: #2f2a27;
+}
+.radio-dot {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid #dfcfc0;
+}
+.radio-dot.checked {
+  border-color: #2f7eea;
+  background: #2f7eea;
+  box-shadow: inset 0 0 0 4px #fff;
+}
+.design-zoom {
+  left: 8px;
+  bottom: 46px;
+}
+.design-photo-card:hover .design-zoom { display: flex; }
+.upload-muted { color: #909399; font-size: 13px; }
 
 @media (max-width: 768px) {
   .download-icon {

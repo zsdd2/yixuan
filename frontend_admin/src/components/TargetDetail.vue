@@ -144,7 +144,7 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="showReferencePicker" title="选择场景参考图" width="720px" destroy-on-close>
+    <el-dialog v-model="showReferencePicker" title="选择场景参考图" width="920px" destroy-on-close class="reference-select-dialog">
       <div class="picker-toolbar">
         <el-input v-model="referenceSearch" placeholder="编号/文件名" :prefix-icon="Search" size="small" clearable style="width: 130px" />
         <el-segmented v-model="referencePickerMode" :options="pickerModeOptions" size="small" />
@@ -162,7 +162,7 @@
         <div
           v-for="photo in referencePickerPhotos"
           :key="photo.id"
-          class="photo-thumb"
+          class="photo-thumb reference-select-card"
           @click="setReference(photo.id)"
         >
           <el-image :src="thumbUrl(photo)" fit="cover" lazy class="thumb-img">
@@ -172,6 +172,7 @@
           <span class="process-badge" :class="'ps-' + photo.process_state">{{ processLabel[photo.process_state] }}</span>
           <span class="scope-badge" :class="usageBadgeClass(photo)">{{ usageLabel(photo) }}</span>
           <button class="picker-zoom-btn" title="放大查看" @click.stop="openPreview(photo)">⌕</button>
+          <div class="reference-card-name" :title="photo.original_filename || ''">{{ photo.original_filename || `#${String(photo.display_id).padStart(3, '0')}` }}</div>
         </div>
       </div>
       <el-empty v-if="referencePickerPhotos.length === 0" description="暂无可选照片，可切换项目图片" :image-size="60" />
@@ -1139,6 +1140,55 @@ onUnmounted(() => {
 }
 .photo-thumb:hover .picker-zoom-btn { display: flex; }
 .picker-zoom-btn:hover { background: #409eff; color: #fff; }
+.reference-select-dialog :deep(.el-dialog) {
+  border-radius: 12px;
+}
+.reference-select-dialog .picker-grid {
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  max-height: 520px;
+  gap: 12px;
+}
+.reference-select-card {
+  border-color: #eadfce;
+  background: #fff;
+}
+.reference-select-card:hover {
+  border-color: #409eff;
+  transform: translateY(-2px);
+}
+.reference-select-card .process-badge {
+  top: 8px;
+  right: 8px;
+  left: auto;
+  bottom: auto;
+}
+.reference-select-card .scope-badge {
+  right: 8px;
+  bottom: 34px;
+}
+.reference-select-card .display-id-badge {
+  top: auto;
+  left: 8px;
+  bottom: 34px;
+}
+.reference-card-name {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 30px;
+  padding: 6px 10px;
+  background: rgba(255,255,255,0.94);
+  color: #303133;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.reference-select-card .picker-zoom-btn {
+  bottom: 38px;
+  left: 8px;
+}
 .check-mark {
   position: absolute; top: 4px; right: 4px; width: 22px; height: 22px;
   background: #409eff; border-radius: 50%; display: flex; align-items: center;

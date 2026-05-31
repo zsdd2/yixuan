@@ -93,79 +93,93 @@
       </div>
     </el-dialog>
 
-    <el-dialog v-model="showUploadDialog" title="选择精修图" width="760px" destroy-on-close>
-      <el-form label-width="90px">
-        <el-form-item label="源原图">
-          <div class="source-photo-picker">
-            <div class="source-photo-grid">
-              <div
-                v-for="p in confirmedRaws"
-                :key="p.id"
-                :class="['source-photo-card', { selected: uploadParentId === p.id }]"
-                @click="uploadParentId = p.id"
-              >
-                <el-image :src="thumbUrl(p)" fit="cover" lazy class="source-photo-img">
-                  <template #error><div class="thumb-error"><el-icon><PictureFilled /></el-icon></div></template>
-                </el-image>
-                <span class="display-id-badge">#{{ displayId(p) }}</span>
-                <button class="zoom-btn card-zoom" title="放大查看" @click.stop="emit('preview', p)">⌕</button>
-                <div class="source-photo-name" :title="p.original_filename || ''">{{ p.original_filename || `#${displayId(p)}` }}</div>
-              </div>
-            </div>
-            <el-empty v-if="confirmedRaws.length === 0" description="暂无已确认原图" :image-size="40" />
+    <el-dialog v-model="showUploadDialog" width="1180px" destroy-on-close class="image-select-dialog">
+      <div class="image-select-layout">
+        <aside class="select-left">
+          <h2 class="select-title">选择精修图</h2>
+          <div class="hero-preview">
+            <el-image v-if="selectedParentPhoto" :src="thumbUrl(selectedParentPhoto)" fit="cover" class="hero-img" />
+            <div v-else class="hero-empty">请选择源原图</div>
           </div>
-        </el-form-item>
-        <el-form-item label="修改说明">
-          <el-input v-model="uploadRevisionNotes" type="textarea" :rows="2" placeholder="本次修改的内容说明" />
-        </el-form-item>
-        <el-form-item label="精修分类">
-          <el-radio-group v-model="uploadRetouchQuality">
-            <el-radio value="generated">生成图</el-radio>
-            <el-radio value="generated_4k">4K生成图</el-radio>
-            <el-radio value="high_res">高清图</el-radio>
-          </el-radio-group>
-        </el-form-item>
-        <el-form-item label="图片来源">
-          <el-tabs v-model="sourceTab" class="source-tabs">
-            <el-tab-pane label="从项目选择" name="existing">
-              <div class="existing-picker-head">
-                <el-segmented v-model="sourcePhotoMode" :options="sourcePhotoModeOptions" size="small" />
-                <span class="picker-hint">默认显示当前子项目图片，找不到时可切换项目图片。</span>
-              </div>
-              <div class="existing-photo-grid">
-                <div
-                  v-for="photo in selectablePhotos"
-                  :key="photo.id"
-                  :class="['photo-thumb', { selected: selectedExistingIds.has(photo.id) }]"
-                  @click="toggleExistingSelection(photo.id)"
-                >
-                  <el-image :src="thumbUrl(photo)" fit="cover" lazy class="thumb-img">
-                    <template #error><div class="thumb-error">-</div></template>
-                  </el-image>
-                  <span class="display-id-badge">#{{ displayId(photo) }}</span>
-                  <span class="state-badge">{{ processLabel(photo.process_state) }}</span>
-                  <button class="zoom-btn card-zoom" title="放大查看" @click.stop="emit('preview', photo)">⌕</button>
-                  <div class="source-photo-name" :title="photo.original_filename || ''">{{ photo.original_filename || `#${displayId(photo)}` }}</div>
-                  <div v-if="selectedExistingIds.has(photo.id)" class="check-mark">✓</div>
-                </div>
-              </div>
-              <el-empty v-if="selectablePhotos.length === 0" description="暂无可选照片" :image-size="40" />
-            </el-tab-pane>
-            <el-tab-pane label="上传新文件" name="upload">
-              <el-upload
-                ref="retouchUploadRef"
-                :auto-upload="false"
-                multiple
-                accept=".jpg,.jpeg,.png,.tif,.tiff,.webp"
-                :on-change="onRetouchFileChange"
-                :on-remove="onRetouchFileRemove"
-              >
-                <el-button type="primary" plain>选择文件</el-button>
-              </el-upload>
-            </el-tab-pane>
-          </el-tabs>
-        </el-form-item>
-      </el-form>
+          <div class="source-title">源原图</div>
+          <div class="source-strip">
+            <button class="strip-arrow" :disabled="selectedParentIndex <= 0" @click="selectParentByOffset(-1)">‹</button>
+            <div
+              v-for="p in visibleConfirmedRaws"
+              :key="p.id"
+              :class="['strip-card', { selected: uploadParentId === p.id }]"
+              @click="uploadParentId = p.id"
+            >
+              <el-image :src="thumbUrl(p)" fit="cover" class="strip-img" />
+            </div>
+            <button class="strip-arrow" :disabled="selectedParentIndex >= confirmedRaws.length - 1" @click="selectParentByOffset(1)">›</button>
+          </div>
+          <div class="strip-count">{{ selectedParentIndex + 1 || 0 }} / {{ confirmedRaws.length }}</div>
+        </aside>
+
+        <section class="select-right">
+          <el-form label-position="top" class="select-form">
+            <el-form-item label="修改说明">
+              <el-input
+                v-model="uploadRevisionNotes"
+                type="textarea"
+                :rows="4"
+                maxlength="200"
+                show-word-limit
+                placeholder="本次修改的内容说明"
+              />
+            </el-form-item>
+            <el-form-item label="精修分类">
+              <el-radio-group v-model="uploadRetouchQuality" class="quality-options">
+                <el-radio value="generated">生成图</el-radio>
+                <el-radio value="generated_4k">4K生成图</el-radio>
+                <el-radio value="high_res">高清图</el-radio>
+              </el-radio-group>
+            </el-form-item>
+            <el-form-item label="图片来源">
+              <el-tabs v-model="sourceTab" class="source-tabs">
+                <el-tab-pane label="从项目选择" name="existing">
+                  <div class="mode-row">
+                    <el-segmented v-model="sourcePhotoMode" :options="sourcePhotoModeOptions" />
+                    <span>默认显示当前子项目图片，找不到时可切换项目图片。</span>
+                  </div>
+                  <div class="design-photo-grid">
+                    <div
+                      v-for="photo in selectablePhotos"
+                      :key="photo.id"
+                      :class="['design-photo-card', { selected: selectedExistingIds.has(photo.id) }]"
+                      @click="toggleExistingSelection(photo.id)"
+                    >
+                      <el-image :src="thumbUrl(photo)" fit="cover" lazy class="design-thumb">
+                        <template #error><div class="thumb-error">-</div></template>
+                      </el-image>
+                      <span class="design-state" :class="'state-' + photo.process_state">{{ processLabel(photo.process_state) }}</span>
+                      <button class="zoom-btn design-zoom" title="放大查看" @click.stop="emit('preview', photo)">⌕</button>
+                      <div class="design-card-footer">
+                        <span>#{{ displayId(photo) }}</span>
+                        <span class="radio-dot" :class="{ checked: selectedExistingIds.has(photo.id) }"></span>
+                      </div>
+                    </div>
+                  </div>
+                  <el-empty v-if="selectablePhotos.length === 0" description="暂无可选照片" :image-size="40" />
+                </el-tab-pane>
+                <el-tab-pane label="上传新文件" name="upload">
+                  <el-upload
+                    ref="retouchUploadRef"
+                    :auto-upload="false"
+                    multiple
+                    accept=".jpg,.jpeg,.png,.tif,.tiff,.webp"
+                    :on-change="onRetouchFileChange"
+                    :on-remove="onRetouchFileRemove"
+                  >
+                    <el-button type="primary" plain>选择文件</el-button>
+                  </el-upload>
+                </el-tab-pane>
+              </el-tabs>
+            </el-form-item>
+          </el-form>
+        </section>
+      </div>
       <template #footer>
         <el-button @click="showUploadDialog = false">取消</el-button>
         <el-button
@@ -197,7 +211,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { PictureFilled } from '@element-plus/icons-vue'
 import type { PhotoItem } from './TargetDetail.vue'
@@ -227,6 +241,29 @@ const retouchedPhotos = computed(() =>
 const confirmedRaws = computed(() =>
   props.photos.filter(p => p.process_state === 'raw' && (p.is_confirmed || p.is_locked) && p.status !== 'deleted')
 )
+
+const selectedParentPhoto = computed(() =>
+  confirmedRaws.value.find(p => p.id === uploadParentId.value) || confirmedRaws.value[0] || null
+)
+
+const selectedParentIndex = computed(() => {
+  if (!selectedParentPhoto.value) return -1
+  return confirmedRaws.value.findIndex(p => p.id === selectedParentPhoto.value!.id)
+})
+
+const visibleConfirmedRaws = computed(() => {
+  if (confirmedRaws.value.length <= 2) return confirmedRaws.value
+  const index = selectedParentIndex.value >= 0 ? selectedParentIndex.value : 0
+  const start = Math.min(Math.max(index, 0), Math.max(confirmedRaws.value.length - 2, 0))
+  return confirmedRaws.value.slice(start, start + 2)
+})
+
+function selectParentByOffset(offset: number) {
+  if (confirmedRaws.value.length === 0) return
+  const currentIndex = selectedParentIndex.value >= 0 ? selectedParentIndex.value : 0
+  const nextIndex = Math.min(Math.max(currentIndex + offset, 0), confirmedRaws.value.length - 1)
+  uploadParentId.value = confirmedRaws.value[nextIndex].id
+}
 
 const groupedByParent = computed<VersionGroup[]>(() => {
   const map = new Map<number, PhotoItem[]>()
@@ -339,6 +376,12 @@ const sourcePhotoModeOptions = [
   { label: '子项目图片', value: 'target' },
   { label: '项目图片', value: 'project' },
 ]
+
+watch(showUploadDialog, (visible) => {
+  if (visible && uploadParentId.value == null && confirmedRaws.value.length > 0) {
+    uploadParentId.value = confirmedRaws.value[0].id
+  }
+})
 
 const selectablePhotos = computed(() => {
   const source = sourcePhotoMode.value === 'target' ? props.photos : props.projectPhotos
@@ -726,7 +769,247 @@ async function saveNotes() {
   text-decoration: none;
 }
 
+.image-select-dialog :deep(.el-dialog) {
+  border-radius: 12px;
+}
+
+.image-select-dialog :deep(.el-dialog__header) {
+  padding: 0;
+}
+
+.image-select-dialog :deep(.el-dialog__body) {
+  padding: 44px 42px 28px;
+}
+
+.image-select-layout {
+  display: grid;
+  grid-template-columns: 360px minmax(0, 1fr);
+  gap: 42px;
+  min-height: 650px;
+}
+
+.select-left {
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid #eadfce;
+  padding-right: 26px;
+}
+
+.select-title {
+  margin: 0 0 58px;
+  font-size: 34px;
+  line-height: 1.1;
+  font-weight: 500;
+  color: #2f2a27;
+}
+
+.hero-preview {
+  width: 100%;
+  aspect-ratio: 1 / 1.32;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #f6f3ef;
+}
+
+.hero-img,
+.hero-img :deep(img) {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.hero-empty {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #b59b78;
+}
+
+.source-title {
+  margin: 32px 0 16px;
+  color: #aa8253;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.source-strip {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  overflow: hidden;
+}
+
+.strip-card {
+  width: 82px;
+  height: 82px;
+  border: 2px solid transparent;
+  border-radius: 6px;
+  overflow: hidden;
+  cursor: pointer;
+  background: #f5f5f5;
+}
+
+.strip-card.selected {
+  border-color: #c7a477;
+}
+
+.strip-img,
+.strip-img :deep(img) {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.strip-arrow {
+  border: none;
+  background: transparent;
+  color: #b8905d;
+  font-size: 32px;
+  cursor: pointer;
+}
+
+.strip-arrow:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.strip-count {
+  margin-top: 24px;
+  color: #b8905d;
+  font-size: 20px;
+  letter-spacing: 1px;
+}
+
+.select-right {
+  padding-top: 58px;
+}
+
+.select-form :deep(.el-form-item__label) {
+  color: #303133;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.select-form :deep(.el-textarea__inner) {
+  min-height: 102px !important;
+  border-radius: 6px;
+}
+
+.quality-options {
+  display: flex;
+  gap: 72px;
+}
+
 .source-tabs { width: 100%; }
+.source-tabs :deep(.el-tabs__item) {
+  font-size: 17px;
+  padding: 0 32px;
+}
+.source-tabs :deep(.el-tabs__nav-wrap::after) {
+  height: 1px;
+  background: #eadfce;
+}
+.source-tabs :deep(.el-tabs__active-bar) {
+  height: 2px;
+  background: #2f7eea;
+}
+
+.mode-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 14px 0 18px;
+  color: #9b9b9b;
+  font-size: 13px;
+}
+
+.mode-row :deep(.el-segmented) {
+  --el-segmented-item-selected-bg-color: #eee7df;
+  --el-segmented-item-selected-color: #5a4a3a;
+  border-radius: 18px;
+}
+
+.design-photo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 12px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.design-photo-card {
+  position: relative;
+  border: 2px solid #eadfce;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+  cursor: pointer;
+}
+
+.design-photo-card.selected {
+  border-color: #2f7eea;
+}
+
+.design-thumb {
+  width: 100%;
+  aspect-ratio: 1 / 1.35;
+  background: #f5f5f5;
+}
+
+.design-thumb :deep(img) {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.design-state {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  border-radius: 4px;
+  padding: 3px 7px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  background: #2f7eea;
+}
+
+.design-state.state-retouched { background: #7c4ee8; }
+.design-state.state-final { background: #3cae52; }
+
+.design-card-footer {
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px;
+  font-size: 15px;
+  color: #2f2a27;
+}
+
+.radio-dot {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid #dfcfc0;
+}
+
+.radio-dot.checked {
+  border-color: #2f7eea;
+  background: #2f7eea;
+  box-shadow: inset 0 0 0 4px #fff;
+}
+
+.design-zoom {
+  left: 8px;
+  bottom: 46px;
+}
+
+.design-photo-card:hover .design-zoom {
+  display: flex;
+}
 .source-photo-picker,
 .existing-picker-head {
   width: 100%;
