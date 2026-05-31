@@ -131,17 +131,18 @@
       <!-- 看板主体 -->
       <div v-loading="loading" class="kanban-container">
 
-        <!-- 最终交付图入口卡片 -->
-        <div v-if="finalPhotoCount > 0" class="delivery-entry-card" @click="showDelivery = true">
-          <div class="delivery-cover">
-            <el-image v-if="deliveryCoverUrl" :src="deliveryCoverUrl" fit="cover" class="delivery-cover-img" />
-            <div v-else class="delivery-cover-placeholder">📸</div>
+        <section v-if="finalPhotoCount > 0" class="delivery-entry-section">
+          <div class="delivery-entry-card" @click="showDelivery = true">
+            <div class="delivery-cover">
+              <el-image v-if="deliveryCoverUrl" :src="deliveryCoverUrl" fit="cover" class="delivery-cover-img" />
+              <div v-else class="delivery-cover-placeholder">📸</div>
+            </div>
+            <div class="delivery-entry-info">
+              <h3 class="delivery-entry-title">最终交付图</h3>
+              <span class="delivery-entry-count">{{ finalPhotoCount }} 张成片</span>
+            </div>
           </div>
-          <div class="delivery-entry-info">
-            <h3 class="delivery-entry-title">最终交付图</h3>
-            <span class="delivery-entry-count">{{ finalPhotoCount }} 张成片</span>
-          </div>
-        </div>
+        </section>
 
         <template v-if="projectGroups.length > 0">
           <div v-for="section in groupedTargetSections" :key="section.key" class="kanban-section group-kanban-section">
@@ -1160,7 +1161,7 @@ onMounted(() => {
 .kanban-container {
   display: flex;
   flex-direction: column;
-  gap: 32px;
+  gap: 28px;
 }
 
 .kanban-section {
@@ -1315,7 +1316,12 @@ onMounted(() => {
   color: #c0c4cc;
 }
 
-/* 最终交付图入口卡片 */
+.delivery-entry-section {
+  display: block;
+  width: 100%;
+  flex: 0 0 auto;
+}
+
 .delivery-entry-card {
   display: flex;
   gap: 20px;
@@ -1327,10 +1333,9 @@ onMounted(() => {
   transition: transform 0.2s, box-shadow 0.2s;
   color: white;
   width: 100%;
+  min-height: 100px;
   box-sizing: border-box;
-  margin-bottom: 4px;
-  position: relative;
-  z-index: 1;
+  position: static;
 }
 .delivery-entry-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(102,126,234,0.4); }
 .delivery-cover { width: 80px; height: 60px; border-radius: 8px; overflow: hidden; flex-shrink: 0; background: rgba(255,255,255,0.2); }

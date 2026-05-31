@@ -439,9 +439,10 @@ function downloadCurrentPreview() {
   const photo = photos.value[previewIdx.value]
   if (!photo) return
   const path = showOriginal.value ? photo.original_path : (photo.thumbnail_path || photo.original_path)
+  const ext = path.includes('.') ? path.slice(path.lastIndexOf('.')) : ''
   const filename = showOriginal.value
     ? (photo.original_filename || `photo_${photo.display_id}`)
-    : `thumb_${photo.display_id}`
+    : `thumb_${photo.display_id}${ext || '.jpg'}`
   downloadStorageFile(path, filename)
 }
 </script>

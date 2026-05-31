@@ -430,9 +430,10 @@ function downloadOriginal(photo: DeliveryPhoto | null) {
 function downloadCurrentPreview() {
   if (!previewItem.value) return
   const path = showOriginal.value ? previewItem.value.original_path : (previewItem.value.thumbnail_path || previewItem.value.original_path)
+  const ext = path.includes('.') ? path.slice(path.lastIndexOf('.')) : ''
   const filename = showOriginal.value
     ? (previewItem.value.original_filename || `photo_${previewItem.value.display_id}`)
-    : `thumb_${previewItem.value.display_id}`
+    : `thumb_${previewItem.value.display_id}${ext || '.jpg'}`
   downloadStorageFile(path, filename)
 }
 
