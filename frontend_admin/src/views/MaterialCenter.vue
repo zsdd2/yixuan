@@ -125,11 +125,8 @@
       </div>
     </div>
 
-    <el-dialog v-model="showUpload" title="上传素材" width="680px" destroy-on-close>
-      <el-form label-width="90px">
-        <el-form-item label="素材名称">
-          <el-input v-model="uploadName" placeholder="例如：海边柠檬水" />
-        </el-form-item>
+    <el-dialog v-model="showUpload" title="导入素材" width="720px" destroy-on-close>
+      <el-form label-width="92px">
         <el-form-item label="一级分类">
           <el-select v-model="uploadPrimary" placeholder="选择一级分类" style="width: 100%" @change="uploadSecondary = ''">
             <el-option v-for="c in materialCategories" :key="c.name" :label="c.name" :value="c.name" />
@@ -143,34 +140,48 @@
         <el-form-item label="附加标签">
           <el-input v-model="uploadTags" placeholder="多个标签用逗号分隔" />
         </el-form-item>
-        <el-form-item label="图片">
-          <el-upload
-            ref="uploadRef"
-            drag
-            multiple
-            :auto-upload="false"
-            accept=".jpg,.jpeg,.png,.webp,.tif,.tiff"
-            :on-change="onFileChange"
-            :on-remove="onFileRemove"
-          >
-            <el-button type="primary" plain>选择图片</el-button>
-            <template #tip><div class="upload-tip">可批量选择，多张会使用同一分类与标签。</div></template>
-          </el-upload>
-        </el-form-item>
-        <el-divider content-position="left">NAS 导入</el-divider>
-        <el-form-item label="NAS路径">
-          <div class="nas-row">
-            <el-input v-model="nasPath" placeholder="点击右侧选择 NAS 目录" readonly />
-            <el-button @click="showNasPicker = true">选择</el-button>
-            <el-button type="success" :loading="scanningNas" :disabled="!nasPath || !uploadPrimary || !uploadSecondary" @click="scanNasMaterials">导入</el-button>
+        <el-form-item label="批量命名">
+          <div class="rename-row">
+            <el-radio-group v-model="renameMode">
+              <el-radio label="keep">保留原名</el-radio>
+              <el-radio label="prefix">前缀编号</el-radio>
+            </el-radio-group>
+            <el-input v-if="renameMode === 'prefix'" v-model="batchNamePrefix" placeholder="如：海边素材-" style="width: 180px" />
+            <el-input-number v-if="renameMode === 'prefix'" v-model="batchNameStart" :min="1" :controls="false" style="width: 90px" />
           </div>
         </el-form-item>
+        <el-tabs v-model="materialImportMode" class="material-import-tabs">
+          <el-tab-pane label="上传图片" name="upload">
+            <el-form-item label="图片">
+              <el-upload
+                ref="uploadRef"
+                drag
+                multiple
+                :auto-upload="false"
+                accept=".jpg,.jpeg,.png,.webp,.tif,.tiff"
+                :on-change="onFileChange"
+                :on-remove="onFileRemove"
+              >
+                <el-button type="primary" plain>选择图片</el-button>
+                <template #tip><div class="upload-tip">可批量选择，多张会使用同一分类、标签和命名规则。</div></template>
+              </el-upload>
+            </el-form-item>
+          </el-tab-pane>
+          <el-tab-pane label="NAS 导入" name="nas">
+            <el-form-item label="NAS路径">
+              <div class="nas-row">
+                <el-input v-model="nasPath" placeholder="点击右侧选择 NAS 目录" readonly />
+                <el-button @click="showNasPicker = true">选择</el-button>
+              </div>
+            </el-form-item>
+          </el-tab-pane>
+        </el-tabs>
       </el-form>
       <NASPathPicker v-model="showNasPicker" @select="onNasSelected" />
       <template #footer>
         <el-button @click="showUpload = false">取消</el-button>
-        <el-button type="primary" :loading="uploading" :disabled="uploadFiles.length === 0 || !uploadPrimary || !uploadSecondary" @click="uploadMaterial">
-          上传 {{ uploadFiles.length }} 张
+        <el-button type="primary" :loading="importingMaterial" :disabled="!canImportMaterial" @click="submitMaterialImport">
+          {{ materialImportButtonText }}
         </el-button>
       </template>
     </el-dialog>
@@ -207,7 +218,7 @@ const filterSecondary = ref('')
 const filterKeyword = ref('')
 
 const showUpload = ref(false)
-const uploadName = ref('')
+const materialImportMode = ref<'upload' | 'nas'>('upload')
 const uploadPrimary = ref('')
 const uploadSecondary = ref('')
 const uploadTags = ref('')
@@ -217,6 +228,9 @@ const uploadRef = ref()
 const nasPath = ref('')
 const showNasPicker = ref(false)
 const scanningNas = ref(false)
+const renameMode = ref<'keep' | 'prefix'>('keep')
+const batchNamePrefix = ref('')
+const batchNameStart = ref(1)
 const showBatchSorter = ref(false)
 const selectedIds = ref(new Set<number>())
 const batchPrimary = ref('')
@@ -235,6 +249,17 @@ const filterSecondaryOptions = computed(() =>
 )
 const uploadSecondaryOptions = computed(() =>
   materialCategories.value.find(c => c.name === uploadPrimary.value)?.children || []
+)
+const canImportMaterial = computed(() => {
+  const hasCategory = Boolean(uploadPrimary.value && uploadSecondary.value)
+  if (materialImportMode.value === 'upload') {
+    return hasCategory && uploadFiles.value.length > 0
+  }
+  return hasCategory && Boolean(nasPath.value)
+})
+const importingMaterial = computed(() => uploading.value || scanningNas.value)
+const materialImportButtonText = computed(() =>
+  materialImportMode.value === 'upload' ? `上传 ${uploadFiles.value.length} 张` : '导入 NAS 素材'
 )
 const batchSecondaryOptions = computed(() =>
   materialCategories.value.find(c => c.name === batchPrimary.value)?.children || []
@@ -308,20 +333,16 @@ async function uploadMaterial() {
   if (uploadFiles.value.length === 0 || !uploadPrimary.value || !uploadSecondary.value) return
   uploading.value = true
   try {
-    for (const file of uploadFiles.value) {
+    for (const [index, file] of uploadFiles.value.entries()) {
       const fd = new FormData()
       fd.append('file', file)
       fd.append('category', `${uploadPrimary.value}/${uploadSecondary.value}`)
-      fd.append('name', uploadName.value || file.name)
+      fd.append('name', buildMaterialName(file.name, index))
       fd.append('tags', uploadTags.value)
       await request.upload('/api/v1/settings/images/upload', fd)
     }
     ElMessage.success(`已上传 ${uploadFiles.value.length} 张素材`)
-    showUpload.value = false
-    uploadName.value = ''
-    uploadTags.value = ''
-    uploadFiles.value = []
-    uploadRef.value?.clearFiles?.()
+    resetImportForm()
     await fetchMaterials()
   } catch (e: any) {
     ElMessage.error(e.message || '上传失败')
@@ -331,7 +352,7 @@ async function uploadMaterial() {
 }
 
 function onNasSelected(path: string) {
-  nasPath.value = path === '.' ? '' : path
+  nasPath.value = path || '.'
 }
 
 async function scanNasMaterials() {
@@ -342,14 +363,46 @@ async function scanNasMaterials() {
       path: nasPath.value,
       category: `${uploadPrimary.value}/${uploadSecondary.value}`,
       tags: uploadTags.value || null,
+      name_prefix: renameMode.value === 'prefix' ? batchNamePrefix.value.trim() || null : null,
+      start_index: batchNameStart.value,
+      keep_original_name: renameMode.value !== 'prefix',
     })
     ElMessage.success(result.msg || 'NAS 导入完成')
+    resetImportForm()
     await fetchMaterials()
   } catch (e: any) {
     ElMessage.error(e.message || 'NAS 导入失败')
   } finally {
     scanningNas.value = false
   }
+}
+
+function buildMaterialName(originalName: string, index: number) {
+  if (renameMode.value === 'prefix' && batchNamePrefix.value.trim()) {
+    const dotIndex = originalName.lastIndexOf('.')
+    const ext = dotIndex >= 0 ? originalName.slice(dotIndex) : ''
+    return `${batchNamePrefix.value.trim()}${String(batchNameStart.value + index).padStart(3, '0')}${ext}`
+  }
+  return originalName
+}
+
+async function submitMaterialImport() {
+  if (materialImportMode.value === 'upload') {
+    await uploadMaterial()
+  } else {
+    await scanNasMaterials()
+  }
+}
+
+function resetImportForm() {
+  showUpload.value = false
+  uploadTags.value = ''
+  uploadFiles.value = []
+  nasPath.value = ''
+  renameMode.value = 'keep'
+  batchNamePrefix.value = ''
+  batchNameStart.value = 1
+  uploadRef.value?.clearFiles?.()
 }
 
 function toggleSelect(id: number) {
@@ -440,6 +493,8 @@ function downloadCurrent() {
 .target-summary { padding: 12px; border-radius: 8px; background: #fff; border: 1px solid #e5e7eb; }
 .target-summary strong { display: block; margin: 5px 0; color: #409eff; min-height: 18px; }
 .target-grid { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); }
+.material-import-tabs { margin-top: 4px; }
+.rename-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; width: 100%; }
 .nas-row { display: flex; gap: 8px; width: 100%; }
 .nas-row .el-input { flex: 1; }
 .upload-tip { font-size: 12px; color: #909399; margin-top: 6px; }

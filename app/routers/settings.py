@@ -223,6 +223,9 @@ class NasScanRequest(BaseModel):
     path: str
     category: str = "other"
     tags: str | None = None
+    name_prefix: str | None = None
+    start_index: int = 1
+    keep_original_name: bool = True
 
 
 class SystemImageBulkUpdateRequest(BaseModel):
@@ -271,10 +274,10 @@ async def scan_nas_to_system_images(
     if not scan_dir.is_dir():
         raise HTTPException(404, f"目录不存在: {body.path}")
 
-    files = [
+    files = sorted([
         f for f in scan_dir.rglob("*")
         if f.is_file() and f.suffix.lower() in IMAGE_SUFFIXES
-    ]
+    ], key=lambda item: str(item).lower())
     if not files:
         return {"code": 200, "msg": "未找到图片文件", "data": {"uploaded": 0, "failed": 0}}
 
@@ -283,7 +286,8 @@ async def scan_nas_to_system_images(
     uploaded = 0
     failed = 0
 
-    for f in files:
+    name_prefix = (body.name_prefix or "").strip()
+    for index, f in enumerate(files):
         try:
             file_bytes = await run_in_threadpool(f.read_bytes)
             suffix = f.suffix.lower()
@@ -292,7 +296,11 @@ async def scan_nas_to_system_images(
             )
             img = SystemImage(
                 category=body.category,
-                name=f.name,
+                name=(
+                    f.name
+                    if body.keep_original_name or not name_prefix
+                    else f"{name_prefix}{body.start_index + index:03d}{f.suffix.lower()}"
+                ),
                 tags=body.tags,
                 original_path=str(original_path),
                 thumbnail_path=str(thumb_path),

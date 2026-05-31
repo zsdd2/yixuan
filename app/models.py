@@ -135,6 +135,9 @@ class Project(Base):
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     cover_image: Mapped[str | None] = mapped_column(Text, nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
+    customer_product_code: Mapped[str | None] = mapped_column(
+        String(128), nullable=True, default=None
+    )
 
     client_prefix: Mapped[str] = mapped_column(String(10), nullable=False, default="")
     serial_number: Mapped[int] = mapped_column(

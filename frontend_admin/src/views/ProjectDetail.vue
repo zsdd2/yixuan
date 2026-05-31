@@ -91,6 +91,12 @@
               <div class="metric-sub">{{ projectClientContact || '暂无联系方式' }}</div>
             </div>
 
+            <div class="metric-block">
+              <div class="metric-label">客户编号</div>
+              <div class="metric-value">{{ projectCustomerProductCode || '未填写' }}</div>
+              <div class="metric-sub">客户侧产品编号</div>
+            </div>
+
             <!-- 时间节点 -->
             <div class="metric-block">
               <div class="metric-label">时间节点</div>
@@ -488,6 +494,7 @@ const projectDisplayId = ref('')
 const projectCoverImage = ref<string | null>(null)
 const projectDescription = ref<string | null>(null)
 const projectClientName = ref<string | null>(null)
+const projectCustomerProductCode = ref<string | null>(null)
 const projectClientContact = ref<string | null>(null)
 const projectEstimatedEnd = ref<string | null>(null)
 const projectCreatedAt = ref<string | null>(null)
@@ -724,6 +731,7 @@ async function fetchTargets() {
     projectCoverImage.value = projData.cover_image ?? null
     projectDescription.value = projData.description ?? null
     projectClientName.value = projData.client_name ?? null
+    projectCustomerProductCode.value = projData.customer_product_code ?? null
     projectEstimatedEnd.value = projData.estimated_end_time ?? null
     projectCreatedAt.value = projData.created_at ?? null
     totalPhotoCount.value = projData.photo_count ?? 0

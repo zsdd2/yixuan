@@ -4,7 +4,7 @@
     <div class="action-bar">
       <el-button type="primary" @click="openCreate">+ 新建项目</el-button>
       <div class="action-bar-right">
-        <el-input v-model="searchText" placeholder="搜索项目名称 / 编号 / 客户" size="default" clearable style="width:240px" @keyup.enter="resetAndFetch">
+        <el-input v-model="searchText" placeholder="搜索项目名称 / 编号 / 客户编号 / 客户" size="default" clearable style="width:280px" @keyup.enter="resetAndFetch">
           <template #prefix><el-icon><Search /></el-icon></template>
         </el-input>
         <div class="filter-toggle" :class="{ active: showFilters || hasActiveFilters }" @click="showFilters = !showFilters">
@@ -86,6 +86,13 @@
       <el-table-column prop="client_name" label="客户" min-width="100" show-overflow-tooltip>
         <template #default="{ row }">
           {{ row.client_name || '—' }}
+        </template>
+      </el-table-column>
+
+      <el-table-column prop="customer_product_code" label="客户编号" min-width="120" show-overflow-tooltip>
+        <template #default="{ row }">
+          <span v-if="row.customer_product_code" class="customer-code">{{ row.customer_product_code }}</span>
+          <span v-else class="text-muted">-</span>
         </template>
       </el-table-column>
 
@@ -172,6 +179,9 @@
         </el-form-item>
         <el-form-item label="项目名称" prop="name">
           <el-input v-model="createForm.name" placeholder="请输入项目名称" maxlength="128" show-word-limit />
+        </el-form-item>
+        <el-form-item label="客户编号">
+          <el-input v-model="createForm.customer_product_code" placeholder="客户侧产品编号/货号，可中英文" maxlength="128" show-word-limit />
         </el-form-item>
         <el-form-item label="拍摄类型">
           <div class="shooting-type-row">
@@ -265,6 +275,7 @@ import request from '../api/request'
 interface ProjectItem {
   id: number
   name: string
+  customer_product_code: string | null
   display_id: string
   cover_image: string | null
   client_name: string | null
@@ -334,6 +345,7 @@ const creating = ref(false)
 const createFormRef = ref<FormInstance>()
 const createForm = reactive({
   name: '',
+  customer_product_code: '',
   client_id: null as number | null,
   template_id: null as number | null,
   shooting_type: '',
@@ -412,7 +424,7 @@ function onPageChange(page: number) {
 }
 
 function openCreate() {
-  Object.assign(createForm, { name: '', client_id: null, template_id: null, shooting_type: '', estimated_end_time: null, description: '' })
+  Object.assign(createForm, { name: '', customer_product_code: '', client_id: null, template_id: null, shooting_type: '', estimated_end_time: null, description: '' })
   showCreate.value = true
 }
 
@@ -531,6 +543,7 @@ async function doCreate() {
       client_id: createForm.client_id,
     }
     if (createForm.template_id) body.template_id = createForm.template_id
+    if (createForm.customer_product_code?.trim()) body.customer_product_code = createForm.customer_product_code.trim()
     if (createForm.shooting_type?.trim()) body.shooting_type = createForm.shooting_type.trim()
     if (createForm.estimated_end_time) body.estimated_end_time = createForm.estimated_end_time
     if (createForm.description?.trim()) body.description = createForm.description.trim()

@@ -73,7 +73,7 @@ async def list_projects(
     current_user: CurrentUser,
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
-    search: str | None = Query(None, description="模糊搜索项目名称、编号或客户名称"),
+    search: str | None = Query(None, description="模糊搜索项目名称、编号、客户编号或客户名称"),
     sort_by: str = Query("deadline", description="排序方式: deadline | photo_count"),
     status_filter: str | None = Query(None, description="状态筛选: active|archived|deleted|completed"),
     client_id: int | None = Query(None, description="按客户ID筛选"),
@@ -135,6 +135,7 @@ async def list_projects(
         matching_client_ids_stmt = select(Client.id).where(Client.name.ilike(keyword))
         base_where.append(or_(
             Project.name.ilike(keyword),
+            Project.customer_product_code.ilike(keyword),
             (Project.client_prefix + cast(Project.serial_number, String)).ilike(keyword),
             Project.client_id.in_(matching_client_ids_stmt),
         ))
@@ -315,6 +316,7 @@ async def list_projects(
         ProjectInList(
             id=p.id,
             name=p.name,
+            customer_product_code=p.customer_product_code,
             display_id=p.display_id,
             cover_image=p.cover_image,
             client_name=client_names.get(p.client_id),
@@ -374,6 +376,7 @@ async def create_project(
 
     project = Project(
         name=body.name,
+        customer_product_code=body.customer_product_code.strip() if body.customer_product_code else None,
         client_prefix=client.prefix,
         template_id=body.template_id,
         shooting_type=body.shooting_type,
@@ -428,6 +431,7 @@ async def create_project(
     return ProjectResponse(
         id=project.id,
         name=project.name,
+        customer_product_code=project.customer_product_code,
         display_id=project.display_id,
         created_by=project.created_by,
         folder_path=str(project_dir),
@@ -475,6 +479,7 @@ async def get_project_detail(
     return ProjectDetailResponse(
         id=project.id,
         name=project.name,
+        customer_product_code=project.customer_product_code,
         display_id=project.display_id,
         cover_image=project.cover_image,
         client_id=project.client_id,
