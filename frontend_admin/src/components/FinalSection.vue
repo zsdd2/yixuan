@@ -26,6 +26,7 @@
     <div v-if="finalPhotos.length > 0" class="photo-grid">
       <div v-for="photo in finalPhotos" :key="photo.id" class="final-card">
         <div class="final-thumb-wrapper">
+          <button type="button" class="cancel-final-btn" title="取消完成图" @click.stop="cancelFinalPhoto(photo)">×</button>
           <el-image :src="thumbUrl(photo)" fit="cover" lazy class="final-thumb">
             <template #error><div class="thumb-error"><el-icon><PictureFilled /></el-icon></div></template>
           </el-image>
@@ -172,7 +173,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { PictureFilled, Download } from '@element-plus/icons-vue'
 import type { PhotoItem } from './TargetDetail.vue'
 import { usePhotoDownload } from '../composables/usePhotoDownload'
@@ -301,6 +302,26 @@ async function uploadFinal() {
     uploading.value = false
   }
 }
+
+async function cancelFinalPhoto(photo: PhotoItem) {
+  try {
+    await ElMessageBox.confirm(
+      '确定取消这张完成图吗？取消后会从完成图中移除，关联的精修图/原图仍保留。',
+      '取消完成图',
+      { type: 'warning', confirmButtonText: '确定取消', cancelButtonText: '返回' }
+    )
+    await request.patch('/api/v1/photos/bulk-update', {
+      photo_ids: [photo.id],
+      status: 'deleted',
+    })
+    ElMessage.success('已取消完成图')
+    emit('uploaded')
+  } catch (e: any) {
+    if (e !== 'cancel' && e !== 'close') {
+      ElMessage.error(e.message || '取消失败')
+    }
+  }
+}
 </script>
 
 <style scoped>
@@ -328,6 +349,28 @@ async function uploadFinal() {
 .final-thumb { width: 100%; height: 100%; }
 .final-thumb :deep(img) { width: 100%; height: 100%; object-fit: cover; }
 .thumb-error { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: #f5f7fa; color: #c0c4cc; }
+
+.cancel-final-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 8;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(239, 68, 68, 0.94);
+  color: #fff;
+  font-size: 18px;
+  line-height: 22px;
+  cursor: pointer;
+  display: none;
+  align-items: center;
+  justify-content: center;
+}
+
+.final-thumb-wrapper:hover .cancel-final-btn { display: flex; }
+.cancel-final-btn:hover { background: #dc2626; }
 
 /* 客户反馈标签 */
 .client-feedback-badge {
@@ -396,7 +439,7 @@ async function uploadFinal() {
 .trace-value { color: #606266; }
 
 .final-badge {
-  position: absolute; top: 8px; right: 8px;
+  position: absolute; top: 8px; right: 38px;
   background: #67c23a; color: white;
   font-size: 11px; font-weight: 700;
   padding: 2px 8px; border-radius: 4px;

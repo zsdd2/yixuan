@@ -4,7 +4,7 @@
     <div class="action-bar">
       <el-button type="primary" @click="openCreate">+ 新建项目</el-button>
       <div class="action-bar-right">
-        <el-input v-model="searchText" placeholder="搜索项目名称 / 编号 / 客户编号 / 客户" size="default" clearable style="width:280px" @keyup.enter="resetAndFetch">
+        <el-input v-model="searchText" placeholder="搜索项目名称 / 编号 / 产品编码 / 客户" size="default" clearable style="width:280px" @keyup.enter="resetAndFetch">
           <template #prefix><el-icon><Search /></el-icon></template>
         </el-input>
         <div class="filter-toggle" :class="{ active: showFilters || hasActiveFilters }" @click="showFilters = !showFilters">
@@ -89,7 +89,7 @@
         </template>
       </el-table-column>
 
-      <el-table-column prop="customer_product_code" label="客户编号" min-width="120" show-overflow-tooltip>
+      <el-table-column prop="customer_product_code" label="产品编码" min-width="120" show-overflow-tooltip>
         <template #default="{ row }">
           <span v-if="row.customer_product_code" class="customer-code">{{ row.customer_product_code }}</span>
           <span v-else class="text-muted">-</span>
@@ -133,6 +133,7 @@
               <GlobalStatusMenu :current-status="row.project_status">
                 <template #before>
                   <el-dropdown-item command="detail"><span class="mi">📋 详情</span></el-dropdown-item>
+                  <el-dropdown-item command="edit"><span class="mi">✎ 编辑</span></el-dropdown-item>
                   <el-dropdown-item command="share"><span class="mi">🔗 分享</span></el-dropdown-item>
                 </template>
                 <template #after>
@@ -180,8 +181,8 @@
         <el-form-item label="项目名称" prop="name">
           <el-input v-model="createForm.name" placeholder="请输入项目名称" maxlength="128" show-word-limit />
         </el-form-item>
-        <el-form-item label="客户编号">
-          <el-input v-model="createForm.customer_product_code" placeholder="客户侧产品编号/货号，可中英文" maxlength="128" show-word-limit />
+        <el-form-item label="产品编码">
+          <el-input v-model="createForm.customer_product_code" placeholder="客户侧产品编码/货号，可中英文" maxlength="128" show-word-limit />
         </el-form-item>
         <el-form-item label="拍摄类型">
           <div class="shooting-type-row">
@@ -440,6 +441,8 @@ function onTemplateChange(val: number | null) {
 function onCommand(cmd: string, row: ProjectItem) {
   if (cmd === 'detail') {
     router.push(`/project/${row.id}`)
+  } else if (cmd === 'edit') {
+    router.push(`/project/${row.id}/edit`)
   } else if (cmd === 'share') {
     shareProjectId.value = row.id
     showShareReview.value = true

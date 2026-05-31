@@ -18,7 +18,7 @@
       <el-select v-model="filterSecondary" placeholder="二级分类" clearable style="width: 160px" @change="fetchMaterials">
         <el-option v-for="s in filterSecondaryOptions" :key="s" :label="s" :value="s" />
       </el-select>
-      <el-input v-model="filterKeyword" placeholder="标签/名称" clearable style="width: 220px" @keyup.enter="fetchMaterials" />
+      <el-input v-model="filterKeyword" placeholder="搜索素材名称 / 标签" clearable style="width: 240px" @keyup.enter="fetchMaterials" />
       <el-button @click="fetchMaterials">筛选</el-button>
     </div>
 
@@ -29,8 +29,12 @@
         </div>
         <div class="material-info">
           <div class="material-name">{{ item.name }}</div>
-          <div class="material-category">{{ item.category }}</div>
-          <div v-if="item.tags" class="material-tags">{{ item.tags }}</div>
+          <div class="material-tag-list">
+            <div v-for="group in materialTagLines(item)" :key="group.category" class="material-tag-line">
+              <span class="material-tag-category">{{ group.category }}：</span>
+              <span class="material-tag-values">{{ group.text }}</span>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -286,6 +290,27 @@ const filteredMaterials = computed(() => {
   return list
 })
 
+function materialTagLines(item: MaterialItem) {
+  const groups = new Map<string, string[]>()
+  if (item.category) {
+    const [primary, ...rest] = item.category.split('/').filter(Boolean)
+    if (primary && rest.length > 0) groups.set(primary, [rest.join('/')])
+    else if (primary) groups.set('分类', [primary])
+  }
+  for (const rawTag of (item.tags || '').split(/[,，]/).map(tag => tag.trim()).filter(Boolean)) {
+    const match = rawTag.match(/^([^:：/]+)[:：/](.+)$/)
+    const category = match ? match[1].trim() : '元素'
+    const value = match ? match[2].trim() : rawTag
+    if (!value) continue
+    if (!groups.has(category)) groups.set(category, [])
+    groups.get(category)!.push(value)
+  }
+  return Array.from(groups.entries()).map(([category, values]) => ({
+    category,
+    text: Array.from(new Set(values)).join('、'),
+  }))
+}
+
 onMounted(async () => {
   await loadCategories()
   await fetchMaterials()
@@ -463,14 +488,17 @@ function downloadCurrent() {
 .page-title { margin: 0; font-size: 24px; font-weight: 700; color: #1f2937; }
 .page-subtitle { margin: 6px 0 0; color: #6b7280; font-size: 13px; }
 .filter-bar { display: flex; gap: 10px; align-items: center; margin-bottom: 18px; flex-wrap: wrap; }
-.material-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px; }
-.material-card { background: #fff; border-radius: 8px; overflow: hidden; border: 1px solid #ebeef5; }
-.material-img-wrap { position: relative; aspect-ratio: 4 / 3; cursor: zoom-in; background: #f5f7fa; }
+.material-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 18px; }
+.material-card { background: #fff; border-radius: 12px; overflow: hidden; border: 1px solid #ebeef5; box-shadow: 0 2px 12px rgba(0,0,0,0.06); transition: transform .2s, box-shadow .2s; }
+.material-card:hover { transform: translateY(-3px); box-shadow: 0 8px 24px rgba(0,0,0,0.12); }
+.material-img-wrap { position: relative; aspect-ratio: 4 / 3; cursor: zoom-in; background: #f5f7fa; overflow: hidden; }
 .material-img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.material-info { padding: 10px 12px; }
-.material-name { font-size: 14px; font-weight: 700; color: #1f2937; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.material-category { font-size: 12px; color: #409eff; margin-top: 4px; }
-.material-tags { font-size: 12px; color: #909399; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.material-info { padding: 12px 14px 14px; }
+.material-name { font-size: 14px; font-weight: 700; color: #1f2937; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 8px; }
+.material-tag-list { display: flex; flex-direction: column; gap: 3px; min-height: 34px; }
+.material-tag-line { font-size: 12px; line-height: 17px; color: #4b5563; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.material-tag-category { color: #2563eb; font-weight: 600; }
+.material-tag-values { color: #4b5563; }
 .sorter-dialog :deep(.el-dialog__body) { padding-top: 8px; }
 .sorter-layout { display: grid; grid-template-columns: minmax(360px, 1fr) 220px minmax(320px, 420px); gap: 14px; height: 72vh; min-height: 560px; }
 .sorter-panel { min-height: 0; background: #fff; border: 1px solid #ebeef5; border-radius: 8px; display: flex; flex-direction: column; overflow: hidden; }

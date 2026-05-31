@@ -670,7 +670,7 @@ async def bulk_update_photos(
     await db.commit()
 
     # 检查是否涉及 final 照片变化，触发脏数据标记
-    if body.process_state:
+    if body.process_state or body.status == PhotoStatus.deleted.value:
         has_final_change = any(
             photo.process_state == ProcessState.final or body.process_state == "final"
             for photo in photos

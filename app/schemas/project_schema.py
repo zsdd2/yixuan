@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 class ProjectCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=128, description="项目名称")
-    customer_product_code: str | None = Field(None, max_length=128, description="客户侧产品编号")
+    customer_product_code: str | None = Field(None, max_length=128, description="产品编码")
     client_id: int = Field(..., description="客户ID")
     template_id: int | None = Field(None, description="项目模板ID，选择后自动生成目标")
     shooting_type: str | None = Field(None, max_length=64, description="拍摄类型（自由输入或模板名称）")

@@ -73,7 +73,7 @@ async def list_projects(
     current_user: CurrentUser,
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
-    search: str | None = Query(None, description="模糊搜索项目名称、编号、客户编号或客户名称"),
+    search: str | None = Query(None, description="模糊搜索项目名称、编号、产品编码或客户名称"),
     sort_by: str = Query("deadline", description="排序方式: deadline | photo_count"),
     status_filter: str | None = Query(None, description="状态筛选: active|archived|deleted|completed"),
     client_id: int | None = Query(None, description="按客户ID筛选"),

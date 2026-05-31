@@ -36,6 +36,13 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: '/project/:id/edit',
+      name: 'ProjectEdit',
+      component: () => import('../views/ProjectEdit.vue'),
+      props: true,
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/project/:id/import',
       name: 'ImportCenter',
       component: () => import('../views/ImportCenter.vue'),

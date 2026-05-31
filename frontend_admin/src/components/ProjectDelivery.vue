@@ -41,8 +41,11 @@
             </div>
           </div>
           <div class="portfolio-tag-list">
-            <span v-for="tag in tagNames(item.portfolio_tag_ids)" :key="tag" class="portfolio-tag-chip">{{ tag }}</span>
-            <span v-if="tagNames(item.portfolio_tag_ids).length === 0" class="portfolio-tag-empty">暂无标签</span>
+            <div v-for="group in tagLines(item.portfolio_tag_ids)" :key="group.category" class="portfolio-tag-line">
+              <span class="portfolio-tag-category">{{ group.category }}：</span>
+              <span class="portfolio-tag-values">{{ group.text }}</span>
+            </div>
+            <span v-if="tagLines(item.portfolio_tag_ids).length === 0" class="portfolio-tag-empty">暂无标签</span>
           </div>
         </div>
       </div>
@@ -71,8 +74,11 @@
             </div>
           </div>
           <div class="portfolio-tag-list">
-            <span v-for="tag in tagNames(item.portfolio_tag_ids)" :key="tag" class="portfolio-tag-chip">{{ tag }}</span>
-            <span v-if="tagNames(item.portfolio_tag_ids).length === 0" class="portfolio-tag-empty">暂无标签</span>
+            <div v-for="group in tagLines(item.portfolio_tag_ids)" :key="group.category" class="portfolio-tag-line">
+              <span class="portfolio-tag-category">{{ group.category }}：</span>
+              <span class="portfolio-tag-values">{{ group.text }}</span>
+            </div>
+            <span v-if="tagLines(item.portfolio_tag_ids).length === 0" class="portfolio-tag-empty">暂无标签</span>
           </div>
         </div>
       </div>
@@ -261,9 +267,22 @@ function updateSelectAllState() {
   selectAll.value = selectedIds.value.size === photos.value.length && photos.value.length > 0
 }
 
-function tagNames(ids: number[]) {
-  const map = new Map(systemTags.value.map(tag => [tag.id, tag.category ? `${tag.category}:${tag.name}` : tag.name]))
-  return (ids || []).map(id => map.get(id)).filter(Boolean) as string[]
+function tagLines(ids: number[]) {
+  const tagMap = new Map(systemTags.value.map(tag => [tag.id, tag]))
+  const groupMap = new Map<string, string[]>()
+  for (const id of ids || []) {
+    const tag = tagMap.get(id)
+    if (!tag) continue
+    const category = tag.category || '未分类'
+    if (!groupMap.has(category)) groupMap.set(category, [])
+    groupMap.get(category)!.push(tag.name)
+  }
+  const preferred = ['场景', '元素']
+  const ordered = [
+    ...preferred.filter(category => groupMap.has(category)),
+    ...Array.from(groupMap.keys()).filter(category => !preferred.includes(category)),
+  ]
+  return ordered.map(category => ({ category, text: groupMap.get(category)!.join('、') }))
 }
 
 const portfolioTagCategories = computed(() => {
@@ -553,19 +572,27 @@ onUnmounted(() => {
   min-height: 30px;
   padding: 0 12px 14px;
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  justify-content: center;
+  flex-direction: column;
+  gap: 3px;
 }
 
-.portfolio-tag-chip {
+.portfolio-tag-line {
   max-width: 100%;
-  border-radius: 999px;
-  background: #eef4ff;
-  color: #2563eb;
-  padding: 3px 8px;
   font-size: 12px;
-  line-height: 18px;
+  line-height: 17px;
+  color: #4b5563;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.portfolio-tag-category {
+  color: #2563eb;
+  font-weight: 600;
+}
+
+.portfolio-tag-values {
+  color: #4b5563;
 }
 
 .portfolio-tag-empty {

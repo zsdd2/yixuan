@@ -92,9 +92,9 @@
             </div>
 
             <div class="metric-block">
-              <div class="metric-label">客户编号</div>
+              <div class="metric-label">产品编码</div>
               <div class="metric-value">{{ projectCustomerProductCode || '未填写' }}</div>
-              <div class="metric-sub">客户侧产品编号</div>
+              <div class="metric-sub">客户侧产品编码</div>
             </div>
 
             <!-- 时间节点 -->
@@ -1326,6 +1326,11 @@ onMounted(() => {
   cursor: pointer;
   transition: transform 0.2s, box-shadow 0.2s;
   color: white;
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 4px;
+  position: relative;
+  z-index: 1;
 }
 .delivery-entry-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(102,126,234,0.4); }
 .delivery-cover { width: 80px; height: 60px; border-radius: 8px; overflow: hidden; flex-shrink: 0; background: rgba(255,255,255,0.2); }
