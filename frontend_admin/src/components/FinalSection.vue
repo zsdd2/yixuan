@@ -60,7 +60,7 @@
           </div>
 
           <span class="final-badge">✓ FINAL</span>
-          <button class="zoom-btn" title="放大查看" @click.stop="emit('preview', photo)">⌕</button>
+          <button type="button" class="zoom-btn" title="放大查看" @click.stop="emit('preview', photo)">⌕</button>
         </div>
 
         <div class="final-info">
@@ -81,12 +81,12 @@
         <aside class="select-left">
           <h2 class="select-title">选择完成图</h2>
           <div class="hero-preview">
-            <el-image v-if="selectedRetouchedPhoto" :src="thumbUrl(selectedRetouchedPhoto)" fit="cover" class="hero-img" />
+            <el-image v-if="selectedRetouchedPhoto" :src="thumbUrl(selectedRetouchedPhoto)" fit="contain" class="hero-img" />
             <div v-else class="hero-empty">请选择关联精修图</div>
           </div>
           <div class="source-title">关联精修图</div>
           <div class="source-strip">
-            <button class="strip-arrow" :disabled="selectedRetouchedIndex <= 0" @click="selectRetouchedByOffset(-1)">‹</button>
+            <button type="button" class="strip-arrow" :disabled="selectedRetouchedIndex <= 0" @click="selectRetouchedByOffset(-1)">‹</button>
             <div
               v-for="p in visibleRetouchedPhotos"
               :key="p.id"
@@ -95,7 +95,7 @@
             >
               <el-image :src="thumbUrl(p)" fit="cover" class="strip-img" />
             </div>
-            <button class="strip-arrow" :disabled="selectedRetouchedIndex >= confirmedRetouchedPhotos.length - 1" @click="selectRetouchedByOffset(1)">›</button>
+            <button type="button" class="strip-arrow" :disabled="selectedRetouchedIndex >= confirmedRetouchedPhotos.length - 1" @click="selectRetouchedByOffset(1)">›</button>
           </div>
           <div class="strip-count">{{ selectedRetouchedIndex + 1 || 0 }} / {{ confirmedRetouchedPhotos.length }}</div>
         </aside>
@@ -129,11 +129,11 @@
                       :class="['design-photo-card', { selected: uploadParentId === p.id }]"
                       @click="uploadParentId = p.id"
                     >
-                      <el-image :src="thumbUrl(p)" fit="cover" lazy class="design-thumb">
+                      <el-image :src="thumbUrl(p)" fit="contain" lazy class="design-thumb">
                         <template #error><div class="thumb-error"><el-icon><PictureFilled /></el-icon></div></template>
                       </el-image>
                       <span v-if="p.retouch_quality" class="design-state state-retouched">{{ qualityLabel(p.retouch_quality) }}</span>
-                      <button class="zoom-btn design-zoom" title="放大查看" @click.stop="emit('preview', p)">⌕</button>
+                      <button type="button" class="zoom-btn design-zoom" title="放大查看" @click.stop="emit('preview', p)">⌕</button>
                       <div class="design-card-footer">
                         <span>#{{ displayId(p) }}</span>
                         <span class="radio-dot" :class="{ checked: uploadParentId === p.id }"></span>
@@ -486,26 +486,23 @@ async function uploadFinal() {
 }
 .hero-preview {
   width: 100%;
-  height: 440px;
   border-radius: 6px;
-  overflow: visible;
+  overflow: hidden;
   background: #f6f3ef;
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
+  display: block;
 }
 
 .hero-img {
-  width: auto;
-  height: 100%;
-  max-width: 100%;
+  width: 100%;
+  height: auto;
+  display: block;
 }
 
 .hero-img :deep(img) {
-  width: auto;
-  height: 100%;
-  max-width: 100%;
+  width: 100%;
+  height: auto;
   object-fit: contain;
+  display: block;
 }
 .hero-empty {
   width: 100%;
@@ -607,13 +604,16 @@ async function uploadFinal() {
 .design-photo-card.selected { border-color: #2f7eea; }
 .design-thumb {
   width: 100%;
-  aspect-ratio: 1 / 1.35;
+  height: auto;
+  min-height: 0;
   background: #f5f5f5;
+  display: block;
 }
 .design-thumb :deep(img) {
   width: 100%;
-  height: 100%;
-  object-fit: cover;
+  height: auto;
+  object-fit: contain;
+  display: block;
 }
 .design-state {
   position: absolute;

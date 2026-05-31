@@ -76,6 +76,7 @@
     <main class="main-content">
       <router-view />
     </main>
+    <div class="app-version">v{{ APP_VERSION }}</div>
   </div>
 </template>
 
@@ -95,6 +96,7 @@ import {
   UserFilled,
 } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/userStore'
+import { APP_VERSION } from '@/version'
 
 const route = useRoute()
 const router = useRouter()
@@ -268,5 +270,20 @@ function handleCommand(command: string) {
   min-width: 0;
   overflow-y: auto;
   background: #f4f8fc;
+}
+
+.app-version {
+  position: fixed;
+  right: 12px;
+  bottom: 8px;
+  z-index: 1200;
+  color: rgba(31, 41, 55, 0.52);
+  font-size: 12px;
+  line-height: 18px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 999px;
+  padding: 2px 8px;
+  pointer-events: none;
 }
 </style>

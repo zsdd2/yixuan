@@ -12,10 +12,11 @@
           </div>
         </div>
 
-        <button class="polaroid-side-btn polaroid-download-btn" title="下载原图" @click.stop="downloadCurrent">
+        <button type="button" class="polaroid-side-btn polaroid-download-btn" title="下载原图" @click.stop="downloadCurrent">
           <span class="download-icon">↓</span>
         </button>
         <button
+          type="button"
           v-if="currentPhoto.thumbnail_path"
           class="polaroid-side-btn polaroid-zoom-btn"
           :class="{ active: showOriginal }"
@@ -30,10 +31,10 @@
           </svg>
         </button>
 
-        <button v-if="currentIndex > 0" class="preview-nav-close prev" @click.stop="goPrev">‹</button>
-        <button v-if="currentIndex < photos.length - 1" class="preview-nav-close next" @click.stop="goNext">›</button>
+        <button type="button" v-if="currentIndex > 0" class="preview-nav-close prev" @click.stop="goPrev">‹</button>
+        <button type="button" v-if="currentIndex < photos.length - 1" class="preview-nav-close next" @click.stop="goNext">›</button>
       </div>
-      <button class="preview-close" @click="close">×</button>
+      <button type="button" class="preview-close" @click="close">×</button>
     </div>
   </Teleport>
 </template>

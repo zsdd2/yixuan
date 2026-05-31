@@ -56,6 +56,9 @@
             <div class="info-line-2">#{{ String(photo.display_id).padStart(3, '0') }}</div>
             <div class="info-line-3" :title="photo.original_filename || ''">{{ photo.original_filename || '—' }}</div>
             <div class="info-line-4">{{ photo.project_name }}</div>
+            <div class="portfolio-card-tags">
+              <span v-for="tag in portfolioTagNames(photo.portfolio_tag_ids)" :key="tag" class="portfolio-card-tag">{{ tag }}</span>
+            </div>
           </div>
         </div>
       </div>
@@ -225,6 +228,11 @@ function getStorageUrl(path: string): string {
 
 function goToProject(projectId: number) {
   router.push({ name: 'ProjectDetail', params: { id: projectId } })
+}
+
+function portfolioTagNames(ids: number[]) {
+  const map = new Map(filters.system_tags.map(tag => [tag.id, tag.name]))
+  return (ids || []).map(id => map.get(id)).filter(Boolean) as string[]
 }
 
 async function fetchFilters() {
@@ -532,6 +540,25 @@ function downloadOriginal(photo: PortfolioPhoto | undefined) {
   text-overflow: ellipsis;
   white-space: nowrap;
   margin-bottom: 0;
+}
+
+.portfolio-card-tags {
+  min-height: 22px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 5px;
+  margin-top: 8px;
+}
+
+.portfolio-card-tag {
+  max-width: 100%;
+  border-radius: 999px;
+  background: #eef4ff;
+  color: #2563eb;
+  padding: 2px 7px;
+  font-size: 11px;
+  line-height: 16px;
 }
 
 /* ── 加载 ── */

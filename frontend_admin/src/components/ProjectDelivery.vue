@@ -8,6 +8,9 @@
         <el-button @click="showShareModal = true" :disabled="photos.length === 0">
           创建客户分享
         </el-button>
+        <el-button :disabled="selectedIds.size === 0" @click="openTagDialog">
+          修改标签
+        </el-button>
         <el-checkbox v-model="selectAll" @change="toggleSelectAll" :indeterminate="isIndeterminate">全选</el-checkbox>
         <el-button type="primary" :disabled="selectedIds.size === 0" @click="downloadSelected">
           下载选中 ({{ selectedIds.size }})
@@ -37,20 +40,10 @@
               <div class="info-line-4">{{ projectName }}</div>
             </div>
           </div>
-          <el-select
-            v-model="item.portfolio_tag_ids"
-            class="portfolio-tag-select"
-            multiple
-            collapse-tags
-            collapse-tags-tooltip
-            clearable
-            size="small"
-            placeholder="作品标签"
-            @click.stop
-            @change="updatePortfolioTags(item)"
-          >
-            <el-option v-for="tag in systemTags" :key="tag.id" :label="tag.name" :value="tag.id" />
-          </el-select>
+          <div class="portfolio-tag-list">
+            <span v-for="tag in tagNames(item.portfolio_tag_ids)" :key="tag" class="portfolio-tag-chip">{{ tag }}</span>
+            <span v-if="tagNames(item.portfolio_tag_ids).length === 0" class="portfolio-tag-empty">暂无标签</span>
+          </div>
         </div>
       </div>
     </div>
@@ -77,20 +70,10 @@
               <div class="info-line-4">{{ projectName }}</div>
             </div>
           </div>
-          <el-select
-            v-model="item.portfolio_tag_ids"
-            class="portfolio-tag-select"
-            multiple
-            collapse-tags
-            collapse-tags-tooltip
-            clearable
-            size="small"
-            placeholder="作品标签"
-            @click.stop
-            @change="updatePortfolioTags(item)"
-          >
-            <el-option v-for="tag in systemTags" :key="tag.id" :label="tag.name" :value="tag.id" />
-          </el-select>
+          <div class="portfolio-tag-list">
+            <span v-for="tag in tagNames(item.portfolio_tag_ids)" :key="tag" class="portfolio-tag-chip">{{ tag }}</span>
+            <span v-if="tagNames(item.portfolio_tag_ids).length === 0" class="portfolio-tag-empty">暂无标签</span>
+          </div>
         </div>
       </div>
     </div>
@@ -102,6 +85,28 @@
       v-model:visible="showShareModal"
       :project-id="Number(props.projectId)"
     />
+
+    <el-dialog v-model="showTagDialog" title="批量修改作品标签" width="560px" destroy-on-close>
+      <div class="tag-dialog">
+        <div class="tag-dialog-summary">已选择 {{ selectedIds.size }} 张完成图</div>
+        <div class="tag-create-row">
+          <el-input v-model="newTagName" placeholder="新增作品标签名称" clearable />
+          <el-color-picker v-model="newTagColor" />
+          <el-button :disabled="!newTagName.trim()" @click="createTagInline">新增</el-button>
+        </div>
+        <el-form label-position="top">
+          <el-form-item label="选择标签">
+            <el-select v-model="selectedTagIdsForBatch" multiple filterable clearable placeholder="选择要增加或移除的标签" style="width: 100%">
+              <el-option v-for="tag in systemTags" :key="tag.id" :label="tag.name" :value="tag.id" />
+            </el-select>
+          </el-form-item>
+        </el-form>
+        <div class="tag-dialog-actions">
+          <el-button :disabled="selectedTagIdsForBatch.length === 0" @click="applyBatchTags('remove')">从选中图片移除</el-button>
+          <el-button type="primary" :disabled="selectedTagIdsForBatch.length === 0" @click="applyBatchTags('add')">添加到选中图片</el-button>
+        </div>
+      </div>
+    </el-dialog>
 
     <!-- 大图预览 - 拍立得相框风格（复用作品中心标准实现） -->
     <Teleport to="body">
@@ -199,6 +204,10 @@ const selectedIds = ref<Set<number>>(new Set())
 const selectAll = ref(false)
 const showShareModal = ref(false)
 const systemTags = ref<SystemTagItem[]>([])
+const showTagDialog = ref(false)
+const selectedTagIdsForBatch = ref<number[]>([])
+const newTagName = ref('')
+const newTagColor = ref('#409eff')
 const polaroidImgRef = ref<HTMLImageElement | null>(null)
 const showOriginal = ref(false) // 默认显示缩略图（内部工作台也改为缩略图优先）
 
@@ -242,6 +251,18 @@ function toggleSelectAll(checked: boolean) {
 
 function updateSelectAllState() {
   selectAll.value = selectedIds.value.size === photos.value.length && photos.value.length > 0
+}
+
+function tagNames(ids: number[]) {
+  const map = new Map(systemTags.value.map(tag => [tag.id, tag.name]))
+  return (ids || []).map(id => map.get(id)).filter(Boolean) as string[]
+}
+
+function openTagDialog() {
+  selectedTagIdsForBatch.value = []
+  newTagName.value = ''
+  newTagColor.value = '#409eff'
+  showTagDialog.value = true
 }
 
 async function downloadSelected() {
@@ -373,15 +394,53 @@ async function fetchSystemTags() {
   }
 }
 
-async function updatePortfolioTags(photo: DeliveryPhoto) {
+async function savePortfolioTags(photo: DeliveryPhoto, tagIds: number[]) {
   try {
     const data = await request.patch(`/api/v1/photos/${photo.id}/portfolio-tags`, {
-      tag_ids: photo.portfolio_tag_ids || [],
+      tag_ids: tagIds,
     })
     photo.portfolio_tag_ids = data.portfolio_tag_ids || []
-    ElMessage.success('作品标签已更新')
   } catch (e: any) {
     ElMessage.error(e.message || '作品标签更新失败')
+    throw e
+  }
+}
+
+async function applyBatchTags(mode: 'add' | 'remove') {
+  const selected = photos.value.filter(photo => selectedIds.value.has(photo.id))
+  if (selected.length === 0 || selectedTagIdsForBatch.value.length === 0) return
+
+  const batchIds = new Set(selectedTagIdsForBatch.value)
+  try {
+    await Promise.all(selected.map(photo => {
+      const current = new Set(photo.portfolio_tag_ids || [])
+      if (mode === 'add') {
+        batchIds.forEach(id => current.add(id))
+      } else {
+        batchIds.forEach(id => current.delete(id))
+      }
+      return savePortfolioTags(photo, Array.from(current))
+    }))
+    ElMessage.success(mode === 'add' ? '作品标签已添加' : '作品标签已移除')
+    showTagDialog.value = false
+  } catch {}
+}
+
+async function createTagInline() {
+  const name = newTagName.value.trim()
+  if (!name) return
+  try {
+    const tag = await request.post('/api/v1/settings/tags', {
+      name,
+      color: newTagColor.value,
+      sort_order: systemTags.value.length,
+    })
+    systemTags.value.push(tag)
+    selectedTagIdsForBatch.value = Array.from(new Set([...selectedTagIdsForBatch.value, tag.id]))
+    newTagName.value = ''
+    ElMessage.success('作品标签已新增')
+  } catch (e: any) {
+    ElMessage.error(e.message || '新增标签失败')
   }
 }
 
@@ -456,10 +515,34 @@ onUnmounted(() => {
 
 .card-content { cursor: pointer; }
 
-.portfolio-tag-select {
-  width: calc(100% - 24px);
-  margin: 0 12px 14px;
+.portfolio-tag-list {
+  min-height: 30px;
+  padding: 0 12px 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
 }
+
+.portfolio-tag-chip {
+  max-width: 100%;
+  border-radius: 999px;
+  background: #eef4ff;
+  color: #2563eb;
+  padding: 3px 8px;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.portfolio-tag-empty {
+  font-size: 12px;
+  color: #c0c4cc;
+}
+
+.tag-dialog { display: flex; flex-direction: column; gap: 16px; }
+.tag-dialog-summary { color: #606266; font-size: 13px; }
+.tag-create-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; align-items: center; }
+.tag-dialog-actions { display: flex; justify-content: flex-end; gap: 10px; }
 
 .delivery-img { width: 100%; aspect-ratio: 4/3; }
 .delivery-img :deep(img) { width: 100%; height: 100%; object-fit: cover; }

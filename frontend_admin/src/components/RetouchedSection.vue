@@ -17,7 +17,7 @@
             <template #error><div class="thumb-error"><el-icon><PictureFilled /></el-icon></div></template>
           </el-image>
           <span class="display-id-badge">#{{ displayId(group.parentPhoto) }}</span>
-          <button class="zoom-btn" title="放大查看" @click.stop="emit('preview', group.parentPhoto)">⌕</button>
+          <button type="button" class="zoom-btn" title="放大查看" @click.stop="emit('preview', group.parentPhoto)">⌕</button>
         </div>
         <div class="pair-arrow">→</div>
         <div class="pair-side latest">
@@ -30,7 +30,7 @@
           </el-image>
           <span class="display-id-badge">#{{ displayId(group.latest) }}</span>
           <span class="version-badge">V{{ group.latest.version }}</span>
-          <button class="zoom-btn" title="放大查看" @click.stop="emit('preview', group.latest)">⌕</button>
+          <button type="button" class="zoom-btn" title="放大查看" @click.stop="emit('preview', group.latest)">⌕</button>
         </div>
         <div class="pair-meta">
           <span>{{ group.versions.length }} 个版本</span>
@@ -48,7 +48,7 @@
           <div class="detail-title">原始图 #{{ displayId(activeGroup.parentPhoto) }}</div>
           <div class="detail-raw-wrap">
             <el-image :src="thumbUrl(activeGroup.parentPhoto)" fit="contain" class="detail-raw-img" />
-            <button class="zoom-btn detail" title="放大查看" @click="emit('preview', activeGroup.parentPhoto)">⌕</button>
+            <button type="button" class="zoom-btn detail" title="放大查看" @click="emit('preview', activeGroup.parentPhoto)">⌕</button>
           </div>
           <div v-if="activeGroup.parentPhoto.original_filename" class="detail-filename">{{ activeGroup.parentPhoto.original_filename }}</div>
         </div>
@@ -64,7 +64,7 @@
                 <el-image :src="thumbUrl(ver)" fit="cover" lazy class="version-detail-img">
                   <template #error><div class="thumb-error"><el-icon><PictureFilled /></el-icon></div></template>
                 </el-image>
-                <button class="zoom-btn detail" title="放大查看" @click="emit('preview', ver)">⌕</button>
+                <button type="button" class="zoom-btn detail" title="放大查看" @click="emit('preview', ver)">⌕</button>
               </div>
               <div class="version-detail-meta">
                 <div class="version-detail-head">
@@ -98,7 +98,7 @@
         <aside class="select-left">
           <h2 class="select-title">选择精修图</h2>
           <div class="hero-preview">
-            <el-image v-if="selectedParentPhoto" :src="thumbUrl(selectedParentPhoto)" fit="cover" class="hero-img" />
+            <el-image v-if="selectedParentPhoto" :src="thumbUrl(selectedParentPhoto)" fit="contain" class="hero-img" />
             <div v-else class="hero-empty">请选择源原图</div>
           </div>
           <div class="source-title">源原图</div>
@@ -150,11 +150,11 @@
                       :class="['design-photo-card', { selected: selectedExistingIds.has(photo.id) }]"
                       @click="toggleExistingSelection(photo.id)"
                     >
-                      <el-image :src="thumbUrl(photo)" fit="cover" lazy class="design-thumb">
+                      <el-image :src="thumbUrl(photo)" fit="contain" lazy class="design-thumb">
                         <template #error><div class="thumb-error">-</div></template>
                       </el-image>
                       <span class="design-state" :class="'state-' + photo.process_state">{{ processLabel(photo.process_state) }}</span>
-                      <button class="zoom-btn design-zoom" title="放大查看" @click.stop="emit('preview', photo)">⌕</button>
+                      <button type="button" class="zoom-btn design-zoom" title="放大查看" @click.stop="emit('preview', photo)">⌕</button>
                       <div class="design-card-footer">
                         <span>#{{ displayId(photo) }}</span>
                         <span class="radio-dot" :class="{ checked: selectedExistingIds.has(photo.id) }"></span>
@@ -805,26 +805,23 @@ async function saveNotes() {
 
 .hero-preview {
   width: 100%;
-  height: 440px;
   border-radius: 6px;
-  overflow: visible;
+  overflow: hidden;
   background: #f6f3ef;
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
+  display: block;
 }
 
 .hero-img {
-  width: auto;
-  height: 100%;
-  max-width: 100%;
+  width: 100%;
+  height: auto;
+  display: block;
 }
 
 .hero-img :deep(img) {
-  width: auto;
-  height: 100%;
-  max-width: 100%;
+  width: 100%;
+  height: auto;
   object-fit: contain;
+  display: block;
 }
 
 .hero-empty {
@@ -963,14 +960,17 @@ async function saveNotes() {
 
 .design-thumb {
   width: 100%;
-  aspect-ratio: 1 / 1.35;
+  height: auto;
+  min-height: 0;
   background: #f5f5f5;
+  display: block;
 }
 
 .design-thumb :deep(img) {
   width: 100%;
-  height: 100%;
-  object-fit: cover;
+  height: auto;
+  object-fit: contain;
+  display: block;
 }
 
 .design-state {
