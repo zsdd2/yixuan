@@ -33,8 +33,10 @@
       <el-select v-model="filterClientId" placeholder="客户" clearable filterable size="default" style="width:150px" @change="resetAndFetch">
         <el-option v-for="c in filters.clients" :key="c.id" :label="c.name" :value="c.id" />
       </el-select>
-      <el-select v-model="filterPortfolioTagId" placeholder="作品标签" clearable filterable size="default" style="width:150px" @change="resetAndFetch">
-        <el-option v-for="tag in filters.system_tags" :key="tag.id" :label="tag.name" :value="tag.id" />
+      <el-select v-model="filterPortfolioTagIds" placeholder="作品标签" multiple collapse-tags collapse-tags-tooltip clearable filterable size="default" style="width:220px" @change="resetAndFetch">
+        <el-option-group v-for="group in portfolioTagGroups" :key="group.category" :label="group.category">
+          <el-option v-for="tag in group.items" :key="tag.id" :label="tag.name" :value="tag.id" />
+        </el-option-group>
       </el-select>
     </div>
 
@@ -97,7 +99,7 @@
           <!-- 右侧按钮组（下载 + 放大镜） -->
           <button
             class="polaroid-side-btn polaroid-download-btn"
-            @click="downloadOriginal(photos[previewIdx])"
+            @click="downloadCurrentPreview"
             title="下载原图"
           >
             <span class="download-icon">⬇</span>
@@ -179,14 +181,14 @@ const filterCategoryType = ref<string>('')
 const filterProjectId = ref<number | null>(null)
 const filterTargetName = ref<string>('')
 const filterClientId = ref<number | null>(null)
-const filterPortfolioTagId = ref<number | null>(null)
+const filterPortfolioTagIds = ref<number[]>([])
 
 const filters = reactive({
   shooting_types: [] as string[],
   clients: [] as { id: number; name: string }[],
   projects: [] as { id: number; name: string }[],
   target_names: [] as string[],
-  system_tags: [] as { id: number; name: string; color: string }[],
+  system_tags: [] as { id: number; name: string; color: string; category: string | null; tag_type: string }[],
 })
 
 // 动态计算可用的视角名称列表
@@ -231,15 +233,25 @@ function goToProject(projectId: number) {
 }
 
 function portfolioTagNames(ids: number[]) {
-  const map = new Map(filters.system_tags.map(tag => [tag.id, tag.name]))
+  const map = new Map(filters.system_tags.map(tag => [tag.id, tag.category ? `${tag.category}:${tag.name}` : tag.name]))
   return (ids || []).map(id => map.get(id)).filter(Boolean) as string[]
 }
+
+const portfolioTagGroups = computed(() => {
+  const map = new Map<string, typeof filters.system_tags>()
+  for (const tag of filters.system_tags) {
+    const category = tag.category || '未分类'
+    if (!map.has(category)) map.set(category, [])
+    map.get(category)!.push(tag)
+  }
+  return Array.from(map.entries()).map(([category, items]) => ({ category, items }))
+})
 
 async function fetchFilters() {
   try {
     const [d, tagData] = await Promise.all([
       request.get('/api/v1/photos/portfolio/filters'),
-      request.get('/api/v1/settings/tags'),
+      request.get('/api/v1/settings/tags', { tag_type: 'portfolio' }),
     ])
     filters.shooting_types = d.shooting_types
     filters.clients = d.clients
@@ -276,7 +288,9 @@ function buildQuery(): string {
   if (filterProjectId.value) params.set('project_id', String(filterProjectId.value))
   if (filterTargetName.value) params.set('target_name', filterTargetName.value)
   if (filterClientId.value) params.set('client_id', String(filterClientId.value))
-  if (filterPortfolioTagId.value) params.set('portfolio_tag_id', String(filterPortfolioTagId.value))
+  for (const tagId of filterPortfolioTagIds.value) {
+    params.append('portfolio_tag_ids', String(tagId))
+  }
   return params.toString()
 }
 
@@ -402,9 +416,14 @@ watch(previewVisible, (v) => {
   else window.removeEventListener('keydown', onPreviewKey)
 })
 
-function downloadOriginal(photo: PortfolioPhoto | undefined) {
+function downloadCurrentPreview() {
+  const photo = photos.value[previewIdx.value]
   if (!photo) return
-  downloadStorageFile(photo.original_path, photo.original_filename || `photo_${photo.display_id}`)
+  const path = showOriginal.value ? photo.original_path : (photo.thumbnail_path || photo.original_path)
+  const filename = showOriginal.value
+    ? (photo.original_filename || `photo_${photo.display_id}`)
+    : `thumb_${photo.display_id}`
+  downloadStorageFile(path, filename)
 }
 </script>
 

@@ -5,12 +5,16 @@ from pydantic import BaseModel, Field
 
 class SystemTagCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=64)
+    tag_type: str = Field("general", max_length=32)
+    category: str | None = Field(None, max_length=64)
     color: str = Field("#409eff", max_length=20)
     sort_order: int = 0
 
 
 class SystemTagUpdate(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=64)
+    tag_type: str | None = Field(None, max_length=32)
+    category: str | None = Field(None, max_length=64)
     color: str | None = Field(None, max_length=20)
     sort_order: int | None = None
 
@@ -18,6 +22,8 @@ class SystemTagUpdate(BaseModel):
 class SystemTagResponse(BaseModel):
     id: int
     name: str
+    tag_type: str = "general"
+    category: str | None = None
     color: str
     sort_order: int
     created_at: str

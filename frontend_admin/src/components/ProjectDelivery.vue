@@ -90,6 +90,9 @@
       <div class="tag-dialog">
         <div class="tag-dialog-summary">已选择 {{ selectedIds.size }} 张完成图</div>
         <div class="tag-create-row">
+          <el-select v-model="newTagCategory" filterable allow-create default-first-option placeholder="分类" style="width: 130px">
+            <el-option v-for="category in portfolioTagCategories" :key="category" :label="category" :value="category" />
+          </el-select>
           <el-input v-model="newTagName" placeholder="新增作品标签名称" clearable />
           <el-color-picker v-model="newTagColor" />
           <el-button :disabled="!newTagName.trim()" @click="createTagInline">新增</el-button>
@@ -97,7 +100,9 @@
         <el-form label-position="top">
           <el-form-item label="选择标签">
             <el-select v-model="selectedTagIdsForBatch" multiple filterable clearable placeholder="选择要增加或移除的标签" style="width: 100%">
-              <el-option v-for="tag in systemTags" :key="tag.id" :label="tag.name" :value="tag.id" />
+              <el-option-group v-for="group in groupedPortfolioTags" :key="group.category" :label="group.category">
+                <el-option v-for="tag in group.items" :key="tag.id" :label="tag.name" :value="tag.id" />
+              </el-option-group>
             </el-select>
           </el-form-item>
         </el-form>
@@ -132,7 +137,7 @@
           <!-- 右侧按钮组（下载 + 放大镜） -->
           <button
             class="polaroid-side-btn polaroid-download-btn"
-            @click="downloadOriginal(previewItem)"
+            @click="downloadCurrentPreview"
             title="下载原图"
           >
             <span class="download-icon">⬇</span>
@@ -189,6 +194,8 @@ interface DeliveryPhoto {
 interface SystemTagItem {
   id: number
   name: string
+  tag_type: string
+  category: string | null
   color: string
 }
 
@@ -207,6 +214,7 @@ const systemTags = ref<SystemTagItem[]>([])
 const showTagDialog = ref(false)
 const selectedTagIdsForBatch = ref<number[]>([])
 const newTagName = ref('')
+const newTagCategory = ref('场景')
 const newTagColor = ref('#409eff')
 const polaroidImgRef = ref<HTMLImageElement | null>(null)
 const showOriginal = ref(false) // 默认显示缩略图（内部工作台也改为缩略图优先）
@@ -254,9 +262,24 @@ function updateSelectAllState() {
 }
 
 function tagNames(ids: number[]) {
-  const map = new Map(systemTags.value.map(tag => [tag.id, tag.name]))
+  const map = new Map(systemTags.value.map(tag => [tag.id, tag.category ? `${tag.category}:${tag.name}` : tag.name]))
   return (ids || []).map(id => map.get(id)).filter(Boolean) as string[]
 }
+
+const portfolioTagCategories = computed(() => {
+  const categories = systemTags.value.map(tag => tag.category || '未分类')
+  return Array.from(new Set(['场景', '元素', ...categories]))
+})
+
+const groupedPortfolioTags = computed(() => {
+  const map = new Map<string, SystemTagItem[]>()
+  for (const tag of systemTags.value) {
+    const category = tag.category || '未分类'
+    if (!map.has(category)) map.set(category, [])
+    map.get(category)!.push(tag)
+  }
+  return Array.from(map.entries()).map(([category, items]) => ({ category, items }))
+})
 
 function openTagDialog() {
   selectedTagIdsForBatch.value = []
@@ -385,9 +408,18 @@ function downloadOriginal(photo: DeliveryPhoto | null) {
   downloadStorageFile(photo.original_path, photo.original_filename || `photo_${photo.display_id}`)
 }
 
+function downloadCurrentPreview() {
+  if (!previewItem.value) return
+  const path = showOriginal.value ? previewItem.value.original_path : (previewItem.value.thumbnail_path || previewItem.value.original_path)
+  const filename = showOriginal.value
+    ? (previewItem.value.original_filename || `photo_${previewItem.value.display_id}`)
+    : `thumb_${previewItem.value.display_id}`
+  downloadStorageFile(path, filename)
+}
+
 async function fetchSystemTags() {
   try {
-    const data = await request.get('/api/v1/settings/tags')
+    const data = await request.get('/api/v1/settings/tags', { tag_type: 'portfolio' })
     systemTags.value = data.items || []
   } catch {
     systemTags.value = []
@@ -432,6 +464,8 @@ async function createTagInline() {
   try {
     const tag = await request.post('/api/v1/settings/tags', {
       name,
+      tag_type: 'portfolio',
+      category: newTagCategory.value || null,
       color: newTagColor.value,
       sort_order: systemTags.value.length,
     })
@@ -541,7 +575,7 @@ onUnmounted(() => {
 
 .tag-dialog { display: flex; flex-direction: column; gap: 16px; }
 .tag-dialog-summary { color: #606266; font-size: 13px; }
-.tag-create-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; align-items: center; }
+.tag-create-row { display: grid; grid-template-columns: 130px minmax(0, 1fr) auto auto; gap: 10px; align-items: center; }
 .tag-dialog-actions { display: flex; justify-content: flex-end; gap: 10px; }
 
 .delivery-img { width: 100%; aspect-ratio: 4/3; }

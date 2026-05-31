@@ -918,6 +918,7 @@ async def portfolio_list(
     shooting_type: str | None = Query(None),
     category_type: str | None = Query(None),
     portfolio_tag_id: int | None = Query(None),
+    portfolio_tag_ids: list[int] = Query(default=[]),
     db: AsyncSession = Depends(get_db),
 ) -> PortfolioListResponse:
     base = (
@@ -958,13 +959,16 @@ async def portfolio_list(
         base = base.where(Project.shooting_type == shooting_type)
     if category_type is not None:
         base = base.where(ProjectTarget.category_type == CategoryType(category_type))
-    if portfolio_tag_id is not None:
+    tag_filter_ids = list(dict.fromkeys([*portfolio_tag_ids, *([portfolio_tag_id] if portfolio_tag_id is not None else [])]))
+    if tag_filter_ids:
+        tag_match = (
+            select(portfolio_photo_tags.c.photo_id)
+            .where(portfolio_photo_tags.c.tag_id.in_(tag_filter_ids))
+            .group_by(portfolio_photo_tags.c.photo_id)
+            .having(sa_func.count(sa_func.distinct(portfolio_photo_tags.c.tag_id)) == len(tag_filter_ids))
+        )
         base = base.where(
-            Photo.id.in_(
-                select(portfolio_photo_tags.c.photo_id).where(
-                    portfolio_photo_tags.c.tag_id == portfolio_tag_id
-                )
-            )
+            Photo.id.in_(tag_match)
         )
 
     count_stmt = select(sa_func.count()).select_from(base.subquery())
@@ -1030,7 +1034,10 @@ async def update_portfolio_tags(
     tag_ids = list(dict.fromkeys(body.tag_ids))
     if tag_ids:
         existing_ids = set((await db.execute(
-            select(SystemTag.id).where(SystemTag.id.in_(tag_ids))
+            select(SystemTag.id).where(
+                SystemTag.id.in_(tag_ids),
+                SystemTag.tag_type == "portfolio",
+            )
         )).scalars().all())
         missing = [tid for tid in tag_ids if tid not in existing_ids]
         if missing:

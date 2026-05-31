@@ -95,7 +95,11 @@ function toggleOriginal() {
 function downloadCurrent() {
   const photo = currentPhoto.value
   if (!photo) return
-  downloadStorageFile(photo.original_path, photo.original_filename || `photo_${photo.display_id}`)
+  const path = showOriginal.value ? photo.original_path : (photo.thumbnail_path || photo.original_path)
+  const filename = showOriginal.value
+    ? (photo.original_filename || `photo_${photo.display_id}`)
+    : `thumb_${photo.display_id}`
+  downloadStorageFile(path, filename)
 }
 
 function onImageError() {

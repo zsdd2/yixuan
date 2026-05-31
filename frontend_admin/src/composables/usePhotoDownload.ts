@@ -5,6 +5,7 @@ export interface DownloadablePhoto {
   display_id: number | string
   original_path: string
   original_filename: string | null
+  thumbnail_path?: string | null
 }
 
 function fallbackName(path: string, displayId: number | string, prefix = 'photo') {
@@ -50,6 +51,23 @@ export async function downloadStorageFile(path: string, filename?: string | null
 }
 
 export function usePhotoDownload() {
+  function downloadPreview(photo: DownloadablePhoto | null | undefined) {
+    const path = photo?.thumbnail_path || photo?.original_path
+    if (!photo || !path) {
+      ElMessage.warning('璇ョ収鐗囨病鏈夊彲涓嬭浇鐨勭缉鐣ュ浘')
+      return
+    }
+    const filename = photo.thumbnail_path
+      ? fallbackName(photo.thumbnail_path, photo.display_id, 'thumb')
+      : (photo.original_filename || fallbackName(photo.original_path, photo.display_id))
+    downloadStorageFile(path, filename)
+  }
+
+  function downloadCurrent(photo: DownloadablePhoto | null | undefined, original = false) {
+    if (original) downloadOriginal(photo)
+    else downloadPreview(photo)
+  }
+
   function downloadOriginal(photo: DownloadablePhoto | null | undefined) {
     if (!photo?.original_path) {
       ElMessage.warning('该照片没有原图路径')
@@ -60,6 +78,8 @@ export function usePhotoDownload() {
   }
 
   return {
+    downloadPreview,
+    downloadCurrent,
     downloadOriginal,
   }
 }

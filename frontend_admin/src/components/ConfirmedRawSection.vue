@@ -34,7 +34,7 @@
             v-if="photo.original_path"
             class="download-icon"
             :class="{ 'show-on-selected': selectedIds.has(photo.id) }"
-            @click.stop="downloadOriginal(photo)"
+            @click.stop="downloadPreview(photo)"
             title="下载原图"
           >
             <el-icon><Download /></el-icon>
@@ -62,7 +62,7 @@
           <div
             v-if="photo.original_path"
             class="download-icon"
-            @click.stop="downloadOriginal(photo)"
+            @click.stop="downloadPreview(photo)"
             title="下载原图"
           >
             <el-icon><Download /></el-icon>
@@ -113,7 +113,7 @@ const emit = defineEmits<{
 }>()
 
 const selectedIds = reactive(new Set<number>())
-const { downloadOriginal } = usePhotoDownload()
+const { downloadPreview } = usePhotoDownload()
 
 const allRawPhotos = computed(() => props.photos.filter(p => p.process_state === 'raw' && p.status !== 'deleted'))
 const confirmedPhotos = computed(() =>

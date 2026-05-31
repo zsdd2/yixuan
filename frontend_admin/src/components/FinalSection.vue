@@ -34,7 +34,7 @@
           <div
             v-if="photo.original_path"
             class="download-icon"
-            @click.stop="downloadOriginal(photo)"
+            @click.stop="downloadPreview(photo)"
             title="下载原图"
           >
             <el-icon><Download /></el-icon>
@@ -186,7 +186,7 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ 'complete-target': [], 'uploaded': [], preview: [photo: PhotoItem] }>()
 
-const { downloadOriginal } = usePhotoDownload()
+const { downloadPreview } = usePhotoDownload()
 const showUploadDialog = ref(false)
 const uploadParentId = ref<number | null>(null)
 const uploadNotes = ref('')

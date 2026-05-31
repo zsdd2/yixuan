@@ -43,14 +43,18 @@ router = APIRouter(prefix="/api/v1/settings", tags=["settings"])
 @router.get("/tags", response_model=SystemTagListResponse, summary="全局标签列表")
 async def list_system_tags(
     current_user: CurrentUser,
+    tag_type: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ) -> SystemTagListResponse:
+    stmt = select(SystemTag)
+    if tag_type:
+        stmt = stmt.where(SystemTag.tag_type == tag_type)
     rows = (await db.execute(
-        select(SystemTag).order_by(SystemTag.sort_order, SystemTag.id)
+        stmt.order_by(SystemTag.tag_type, SystemTag.category, SystemTag.sort_order, SystemTag.id)
     )).scalars().all()
     items = [
         SystemTagResponse(
-            id=r.id, name=r.name, color=r.color,
+            id=r.id, name=r.name, tag_type=r.tag_type, category=r.category, color=r.color,
             sort_order=r.sort_order, created_at=r.created_at.isoformat(),
         ) for r in rows
     ]
@@ -66,13 +70,19 @@ async def create_system_tag(
     existing = await db.scalar(select(SystemTag).where(SystemTag.name == body.name))
     if existing:
         raise HTTPException(409, f"标签 '{body.name}' 已存在")
-    tag = SystemTag(name=body.name, color=body.color, sort_order=body.sort_order)
+    tag = SystemTag(
+        name=body.name,
+        tag_type=body.tag_type or "general",
+        category=body.category.strip() if body.category else None,
+        color=body.color,
+        sort_order=body.sort_order,
+    )
     db.add(tag)
     await db.flush()
     await db.refresh(tag)
     await db.commit()
     return SystemTagResponse(
-        id=tag.id, name=tag.name, color=tag.color,
+        id=tag.id, name=tag.name, tag_type=tag.tag_type, category=tag.category, color=tag.color,
         sort_order=tag.sort_order, created_at=tag.created_at.isoformat(),
     )
 
@@ -92,6 +102,10 @@ async def update_system_tag(
         if dup:
             raise HTTPException(409, f"标签 '{body.name}' 已存在")
         tag.name = body.name
+    if body.tag_type is not None:
+        tag.tag_type = body.tag_type or "general"
+    if body.category is not None:
+        tag.category = body.category.strip() or None
     if body.color is not None:
         tag.color = body.color
     if body.sort_order is not None:
@@ -99,7 +113,7 @@ async def update_system_tag(
     await db.commit()
     await db.refresh(tag)
     return SystemTagResponse(
-        id=tag.id, name=tag.name, color=tag.color,
+        id=tag.id, name=tag.name, tag_type=tag.tag_type, category=tag.category, color=tag.color,
         sort_order=tag.sort_order, created_at=tag.created_at.isoformat(),
     )
 

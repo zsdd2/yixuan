@@ -177,7 +177,7 @@ const globalTags = ref<any[]>([])
 
 async function fetchGlobalTags() {
   try {
-    const d = await request.get('/api/v1/settings/tags')
+    const d = await request.get('/api/v1/settings/tags', { tag_type: 'general' })
     globalTags.value = d.items
   } catch {}
 }

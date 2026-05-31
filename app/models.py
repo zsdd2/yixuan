@@ -484,6 +484,8 @@ class SystemTag(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    tag_type: Mapped[str] = mapped_column(String(32), nullable=False, default="general", server_default="general")
+    category: Mapped[str | None] = mapped_column(String(64), nullable=True)
     color: Mapped[str] = mapped_column(String(20), nullable=False, default="#409eff")
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(
